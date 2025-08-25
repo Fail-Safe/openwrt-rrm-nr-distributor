@@ -47,22 +47,26 @@ hm_get() {
 
 first_run_complete=0
 hashmap="$(hm_create)"
+logger -t "rrm_nr" -p daemon.info "Created hash map directory: $hashmap"
+
+do_device_to_ssid_mapping() {
+	for wifi_iface in $(ubus list hostapd.* | awk -F. '{ print $2; }'); do
+		net_ssid=$(iwinfo "${wifi_iface}" info | head -n1 | cut -d\" -f2)
+		[ -z "${net_ssid}" ] && logger -t "rrm_nr" -p daemon.error "${wifi_iface}: does not have ssid according to iwinfo." && continue
+
+		# Store the mapping of hostapd-->SSID for faster lookup
+		hm_put "$hashmap" "$wifi_iface" "$net_ssid"
+		logger -t "rrm_nr" -p daemon.info "${wifi_iface}: added to hash map with SSID: ${net_ssid}"
+	done
+}
 
 # We wrap everything into this function to allow GC by ash, esp. for low-mem devices
 do_updates() {
 	# If the first run, set the hostapd device-->SSID mapping so we can avoid this expensive
 	# process on future iterations
 	if [ $first_run_complete -eq 0 ]; then
-		for wifi_iface in $(ubus list hostapd.* | awk -F. '{ print $2; }'); do
-			net_ssid=$(iwinfo ${wifi_iface} info | head -n1 | cut -d\" -f2)
-			[ -z "${net_ssid}" ] && logger -t "rrm_nr" -p daemon.error "${wifi_iface}: does not have ssid according to iwinfo." && continue
-
-			# Store the mapping of hostapd-->SSID for faster lookup
-			hm_put "$hashmap" "$wifi_iface" "$net_ssid"
-		done
-
+		do_device_to_ssid_mapping
 		first_run_complete=1
-		logger -t "rrm_nr" -p daemon.info "Created initial hash map directory: $hashmap"
 	fi
 
 	local rrm_nr_lists
@@ -83,13 +87,40 @@ do_updates() {
 		# Discover other nodes
 		rrm_nr_lists=""
 
+		wpad_needs_restart=0 # This is a temporary measure to handle the bug with rrm_nr_get_own (https://github.com/openwrt/openwrt/issues/16875)
 		for other_iface in $hostapd_members; do
 			[ "${wifi_iface}" = "${other_iface}" ] && continue
 
-			if [ "${net_ssid}" = "$(hm_get "$hashmap" "$other_iface")" ]; then
-				rrm_nr_lists="${rrm_nr_lists}"$'\n'"$(/bin/ubus call hostapd.${other_iface} rrm_nr_get_own | /usr/bin/jsonfilter -e '$.value')"
+			ssid=$(hm_get "$hashmap" "$other_iface")
+			if [ $? -ne 0 ]; then
+				# The hash map is missing for the current interface, so we need to recreate it
+				logger -t "rrm_nr" -p daemon.info "Recreating hash map."
+				do_device_to_ssid_mapping
+				ssid=$(hm_get "$hashmap" "$other_iface")
+			fi
+
+			if [ "${net_ssid}" = "${ssid}" ]; then
+				# We only want to add the neighbor report of the other interface if it has the same SSID
+				other_iface_value=$(ubus call hostapd."${other_iface}" rrm_nr_get_own)
+				if [ $? -eq 4 ]; then
+					logger -t "rrm_nr" -p daemon.error "The rrm_nr_get_own call failed for ${other_iface}."
+					wpad_needs_restart=1
+					continue
+				fi
+
+				wpad_needs_restart=0
+				other_iface_value=$(echo "$other_iface_value" | jsonfilter -e '$.value')
+				rrm_nr_lists="${rrm_nr_lists}"$'\n'"${other_iface_value}"
 			fi
 		done
+
+		# This is a temporary measure to handle the bug with rrm_nr_get_own (https://github.com/openwrt/openwrt/issues/16875)
+		if [ $wpad_needs_restart -eq 1 ]; then
+			# We need to restart wpad because of the 'rrm_nr_get_own' bug
+			logger -t "rrm_nr" -p daemon.error "Hit the rrm_nr_get_own bug, restarting wpad."
+			/etc/init.d/wpad restart
+			return
+		fi
 
 		# Sort at the end stabilizes the result, so we can compare it across runs
 		for discovered_node in $(ubus call umdns browse '{ "service": "_rrm_nr._udp", "array": true }' | jsonfilter -e '@["_rrm_nr._udp"][*].txt[*]' | grep "\"${net_ssid}\"" | sed -E "s/SSID\d+=//g"); do
