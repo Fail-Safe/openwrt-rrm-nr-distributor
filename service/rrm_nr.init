@@ -306,7 +306,18 @@ cache_service() {
 
 # Force immediate refresh via SIGUSR1
 refresh_service() {
-	procd_send_signal rrm_nr 10  # USR1
+	# First try via procd (quiet); fallback to direct kill if instance not registered.
+	if procd_send_signal rrm_nr 10 2>/dev/null; then
+		return 0
+	fi
+	# Fallback: find running daemon shell wrapper
+	pid=$(pgrep -f '/usr/bin/rrm_nr' 2>/dev/null | head -n1)
+	if [ -n "$pid" ]; then
+		kill -USR1 "$pid" 2>/dev/null && echo 'refresh: sent USR1 (direct)'
+		return 0
+	fi
+	echo 'refresh: daemon not running' >&2
+	return 1
 }
 
 # One-shot readiness diagnostic (adaptive retries summary)
