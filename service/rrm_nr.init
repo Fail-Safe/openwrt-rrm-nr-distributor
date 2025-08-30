@@ -7,8 +7,8 @@ START=99
 NAME=rrm_nr
 USE_PROCD=1
 RRM_NR_INIT_VERSION="2.0.0-beta"
-EXTRA_COMMANDS="mapping neighbors cache refresh diag metrics timing_check timing-check version status skiplist"
-EXTRA_HELP="  mapping        Show iface->BSSID->SSID mapping\n  neighbors      Dump current neighbor lists\n  cache          Show cache directory summary\n  refresh        Force immediate refresh (SIGUSR1)\n  diag           Probe readiness timings (per iface)\n  metrics        Show metrics counters (if present)\n  timing_check   Alias of diag (timing-check also accepted)\n  version        Show init script version + git hash (if available)\n  status         Show runtime state + metrics summary\n  skiplist       Show configured skip_iface entries (effective)\n"
+EXTRA_COMMANDS="mapping mapping_json mapping-json neighbors cache refresh diag metrics timing_check timing-check version status skiplist"
+EXTRA_HELP="  mapping        Show iface/BSSID/channel/freq/width/center1/SSID\n  mapping_json   JSON array variant of mapping (mapping-json also)\n  neighbors      Dump current neighbor lists\n  cache          Show cache directory summary\n  refresh        Force immediate refresh (SIGUSR1)\n  diag           Probe readiness timings (per iface)\n  metrics        Show metrics counters (if present)\n  timing_check   Alias of diag (timing-check also accepted)\n  version        Show init script version + git hash (if available)\n  status         Show runtime state + metrics summary\n  skiplist       Show configured skip_iface entries (effective)\n"
 
 . /lib/functions.sh
 . /lib/rrm_nr_common.sh 2>/dev/null || true
@@ -205,7 +205,8 @@ Available commands:
 	enabled         Check if service is started on boot
 	running         Check if service is running
 	status          Show runtime state + metrics summary
-	mapping         Show iface/BSSID/channel/freq/SSID mapping (live)
+	mapping         Show iface/BSSID/channel/freq/width/center1/SSID mapping (live)
+	mapping_json    Show mapping as JSON array (alias: mapping-json)
 	neighbors       Dump current neighbor lists (per iface)
 	cache           Show cache directory summary
 	refresh         Force immediate refresh (SIGUSR1)
@@ -282,10 +283,10 @@ status_service() {
 
 # Print iface->SSID mapping (live)
 mapping_service() {
-	# Header (aligned with rrm_nr_map_ifaces formatting)
-	printf '  %-12s %-17s %-4s %-6s %s\n' iface bssid chan freq SSID
+	printf '  %-12s %-17s %-4s %-6s %-5s %-6s %s\n' iface bssid chan freq width c1 SSID
 	rrm_nr_map_ifaces | sed 's/^/  /'
 }
+mapping_json_service() { rrm_nr_map_ifaces_json; }
 
 # Dump current neighbor list per interface
 neighbors_service() {
@@ -322,8 +323,9 @@ version_service() {
 	printf '\n'
 }
 
-extra_command() { case "$1" in mapping|neighbors|cache|refresh|diag|metrics|timing-check|timing_check|version|status|skiplist) return 0;; esac; return 1; }
+extra_command() { case "$1" in mapping|mapping_json|mapping-json|neighbors|cache|refresh|diag|metrics|timing-check|timing_check|version|status|skiplist) return 0;; esac; return 1; }
 mapping() { mapping_service; }
+mapping_json() { mapping_json_service; }
 neighbors() { neighbors_service; }
 cache() { cache_service; }
 refresh() { refresh_service; }

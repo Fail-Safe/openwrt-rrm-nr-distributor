@@ -95,7 +95,7 @@ rrm_nr_map_ifaces() {
 	fi
 	for obj in $(ubus list hostapd.* 2>/dev/null); do
 		ifc=${obj#hostapd.}
-		ssid=""; bssid=""; chan=""; freq_mhz=""; ifname=""
+		ssid=""; bssid=""; chan=""; freq_mhz=""; ifname=""; width_mhz=""; center1_mhz=""
 		for method in rrm_nr_get_own get_config bss; do
 			[ -n "$ssid" ] && [ -n "$bssid" ] && [ -n "$chan" ] && [ -n "$freq_mhz" ] && break
 			json=$(ubus call "$obj" "$method" 2>/dev/null || true) || json=""
@@ -133,20 +133,90 @@ rrm_nr_map_ifaces() {
 			fi
 		done
 		# Deterministic channel/freq via iw dev (match BSSID, first channel line after address)
-		if { [ -z "$chan" ] || [ -z "$freq_mhz" ]; } && [ -n "$bssid" ] && [ "$bssid" != "(unknown)" ]; then
+		if { [ -z "$chan" ] || [ -z "$freq_mhz" ] || [ -z "$width_mhz" ] || [ -z "$center1_mhz" ]; } && [ -n "$bssid" ] && [ "$bssid" != "(unknown)" ]; then
 			bsl=$(echo "$bssid" | tr 'A-F' 'a-f')
 			line=$(printf '%s\n' "$_RRM_NR_IW_DEV_CACHE" | awk -v mac="$bsl" 'BEGIN{IGNORECASE=1} tolower($0) ~ /addr/ && tolower($0) ~ mac {found=1; next} found && /channel [0-9]+/ {print; exit}')
 			if [ -n "$line" ]; then
 				[ -z "$chan" ] && chan=$(echo "$line" | sed -n 's/.*channel \([0-9][0-9]*\).*/\1/p')
 				[ -z "$freq_mhz" ] && freq_mhz=$(echo "$line" | sed -n 's/.*(\([0-9][0-9]*\) MHz).*/\1/p')
+				[ -z "$width_mhz" ] && width_mhz=$(echo "$line" | sed -n 's/.*width: *\([0-9][0-9]*\) *MHz.*/\1/p')
+				[ -z "$center1_mhz" ] && center1_mhz=$(echo "$line" | sed -n 's/.*center1: *\([0-9][0-9]*\) *MHz.*/\1/p')
 			fi
 		fi
 		[ -z "$ssid" ] && ssid="(unknown)"
 		[ -z "$bssid" ] && bssid="(unknown)"
 		[ -z "$chan" ] && chan="-"
 		[ -z "$freq_mhz" ] && freq_mhz="-"
-		printf '%-12s %-17s %-4s %-6s %s\n' "$ifc" "$bssid" "$chan" "$freq_mhz" "$ssid"
+		[ -z "$width_mhz" ] && width_mhz="-"
+		[ -z "$center1_mhz" ] && center1_mhz="-"
+		printf '%-12s %-17s %-4s %-6s %-5s %-6s %s\n' "$ifc" "$bssid" "$chan" "$freq_mhz" "$width_mhz" "$center1_mhz" "$ssid"
 	done
+}
+
+# JSON variant: outputs array of objects with keys
+rrm_nr_map_ifaces_json() {
+	if [ -z "$_RRM_NR_IW_DEV_CACHE" ]; then
+		_RRM_NR_IW_DEV_CACHE=$(iw dev 2>/dev/null)
+	fi
+	printf '['
+	first=1
+	for obj in $(ubus list hostapd.* 2>/dev/null); do
+		ifc=${obj#hostapd.}
+		ssid=""; bssid=""; chan=""; freq_mhz=""; ifname=""; width_mhz=""; center1_mhz=""
+		for method in rrm_nr_get_own get_config bss; do
+			[ -n "$ssid" ] && [ -n "$bssid" ] && [ -n "$chan" ] && [ -n "$freq_mhz" ] && [ -n "$width_mhz" ] && [ -n "$center1_mhz" ] && break
+			json=$(ubus call "$obj" "$method" 2>/dev/null || true) || json=""
+			[ -z "$json" ] && continue
+			[ -z "$bssid" ] && bssid=$(echo "$json" | jsonfilter -e '@.bssid' 2>/dev/null)
+			[ -z "$bssid" ] && bssid=$(echo "$json" | jsonfilter -e '@.bss[0].bssid' 2>/dev/null)
+			ssid=$(echo "$json" | jsonfilter -e '@.ssid' 2>/dev/null)
+			[ -z "$ssid" ] && ssid=$(echo "$json" | jsonfilter -e '@.bss[0].ssid' 2>/dev/null)
+			if [ -z "$ssid" ] && [ "$method" = "rrm_nr_get_own" ]; then
+				ssid=$(echo "$json" | jsonfilter -e '@.value[1]' 2>/dev/null)
+				[ -z "$bssid" ] && bssid=$(echo "$json" | jsonfilter -e '@.value[0]' 2>/dev/null)
+			fi
+			[ -z "$ifname" ] && ifname=$(echo "$json" | jsonfilter -e '@.iface' 2>/dev/null)
+			[ -z "$ifname" ] && ifname=$(echo "$json" | jsonfilter -e '@.ifname' 2>/dev/null)
+			[ -z "$chan" ] && chan=$(echo "$json" | jsonfilter -e '@.channel' 2>/dev/null)
+			[ -z "$chan" ] && chan=$(echo "$json" | jsonfilter -e '@.bss[0].channel' 2>/dev/null)
+			[ -z "$freq_mhz" ] && freq_mhz=$(echo "$json" | jsonfilter -e '@.freq' 2>/dev/null)
+			[ -z "$freq_mhz" ] && freq_mhz=$(echo "$json" | jsonfilter -e '@.frequency' 2>/dev/null)
+			if [ -z "$ssid" ] && echo "$json" | grep -q '"ssid" *:' && echo "$json" | grep -q '\['; then
+				arr=$(echo "$json" | sed -n 's/.*"ssid" *: *\[\([^]]*\)\].*/\1/p' | tr -d '"')
+				if echo "$arr" | grep -qE '^[0-9][0-9, ]*$'; then
+					ssid=$(echo "$arr" | tr ',' ' ' | awk '{for(i=1;i<=NF;i++){ if($i!="") printf "%c", $i }}')
+				fi
+			fi
+			if [ -z "$ssid" ]; then
+				hex=$(echo "$json" | sed -n 's/.*"ssid" *: *"\([0-9A-Fa-f]\{2,\}\)".*/\1/p')
+				if [ -n "$hex" ] && echo "$hex" | grep -qE '^[0-9A-Fa-f]+$'; then
+					ssid=$(echo "$hex" | sed 's/../& /g' | awk '{for(i=1;i<=NF;i++){ c=strtonum("0x"$i); if(c>=32 && c<=126) printf "%c", c; else printf "?" }}')
+				fi
+			fi
+			if { [ -z "$chan" ] || [ -z "$freq_mhz" ] || [ -z "$width_mhz" ] || [ -z "$center1_mhz" ]; } && [ -n "$bssid" ] && [ "$bssid" != "(unknown)" ]; then
+				bsl=$(echo "$bssid" | tr 'A-F' 'a-f')
+				line=$(printf '%s\n' "$_RRM_NR_IW_DEV_CACHE" | awk -v mac="$bsl" 'BEGIN{IGNORECASE=1} tolower($0) ~ /addr/ && tolower($0) ~ mac {found=1; next} found && /channel [0-9]+/ {print; exit}')
+				if [ -n "$line" ]; then
+					[ -z "$chan" ] && chan=$(echo "$line" | sed -n 's/.*channel \([0-9][0-9]*\).*/\1/p')
+					[ -z "$freq_mhz" ] && freq_mhz=$(echo "$line" | sed -n 's/.*(\([0-9][0-9]*\) MHz).*/\1/p')
+					[ -z "$width_mhz" ] && width_mhz=$(echo "$line" | sed -n 's/.*width: *\([0-9][0-9]*\) *MHz.*/\1/p')
+					[ -z "$center1_mhz" ] && center1_mhz=$(echo "$line" | sed -n 's/.*center1: *\([0-9][0-9]*\) *MHz.*/\1/p')
+				fi
+			fi
+		done
+		[ -z "$ssid" ] && ssid="(unknown)"
+		[ -z "$bssid" ] && bssid="(unknown)"
+		[ -z "$chan" ] && chan="-"
+		[ -z "$freq_mhz" ] && freq_mhz="-"
+		[ -z "$width_mhz" ] && width_mhz="-"
+		[ -z "$center1_mhz" ] && center1_mhz="-"
+		# Emit JSON object (escape quotes in ssid)
+		ssid_esc=$(printf '%s' "$ssid" | sed 's/\\/\\\\/g; s/"/\\"/g')
+		[ $first -eq 0 ] && printf ','
+		first=0
+		printf '\n{"iface":"%s","bssid":"%s","channel":"%s","freq_mhz":"%s","width_mhz":"%s","center1_mhz":"%s","ssid":"%s"}' "$ifc" "$bssid" "$chan" "$freq_mhz" "$width_mhz" "$center1_mhz" "$ssid_esc"
+	done
+	printf '\n]\n'
 }
 
 # rrm_nr_probe_iface <iface>
