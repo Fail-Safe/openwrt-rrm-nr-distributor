@@ -7,8 +7,8 @@ START=99
 NAME=rrm_nr
 USE_PROCD=1
 RRM_NR_INIT_VERSION="2.0.0-beta"
-EXTRA_COMMANDS="mapping neighbors cache refresh diag metrics timing_check timing-check version status"
-EXTRA_HELP="  mapping        Show iface->SSID mapping\n  neighbors      Dump current neighbor lists\n  cache          Show cache directory summary\n  refresh        Force immediate refresh (SIGUSR1)\n  diag           Probe readiness timings (per iface)\n  metrics        Show metrics counters (if present)\n  timing_check   Alias of diag (timing-check also accepted)\n  version        Show init script version + git hash (if available)\n  status         Show runtime state + metrics summary\n"
+EXTRA_COMMANDS="mapping neighbors cache refresh diag metrics timing_check timing-check version status skiplist"
+EXTRA_HELP="  mapping        Show iface->SSID mapping\n  neighbors      Dump current neighbor lists\n  cache          Show cache directory summary\n  refresh        Force immediate refresh (SIGUSR1)\n  diag           Probe readiness timings (per iface)\n  metrics        Show metrics counters (if present)\n  timing_check   Alias of diag (timing-check also accepted)\n  version        Show init script version + git hash (if available)\n  status         Show runtime state + metrics summary\n  skiplist       Show configured skip_iface entries (effective)\n"
 
 . /lib/functions.sh
 . /lib/rrm_nr_common.sh 2>/dev/null || true
@@ -105,6 +105,18 @@ start_service() {
 	RRM_NR_UMDNS_SETTLE_DELAY=$CFG_UMDNS_SETTLE_DELAY
 	skip_ifaces=$CFG_SKIP_IFACES
 
+	# Warn if any configured skip_iface entries don't match a current hostapd object
+	if [ -n "$skip_ifaces" ]; then
+		all_ifaces=$(ubus list hostapd.* 2>/dev/null | sed 's/^hostapd.//')
+		unmatched=""
+		for s in $skip_ifaces; do
+			found=0
+			for h in $all_ifaces; do [ "$s" = "$h" ] && found=1 && break; done
+			[ $found -eq 0 ] && unmatched="$unmatched $s"
+		done
+		[ -n "$unmatched" ] && logger -t "${NAME}" -p daemon.warning "Configured skip_iface entries not present: $(echo "$unmatched" | sed 's/^ *//')"
+	fi
+
 	rrm_own=""; ssid_count=0; unready_list=""; cfg_skipped=0
 	QUICK_MAX_MS=${RRM_NR_QUICK_MAX_MS:-2000}; case "$QUICK_MAX_MS" in ''|*[!0-9]* ) QUICK_MAX_MS=2000;; esac; [ "$QUICK_MAX_MS" -gt 5000 ] && QUICK_MAX_MS=5000
 	SECOND_PASS_MS=${RRM_NR_SECOND_PASS_MS:-800}; case "$SECOND_PASS_MS" in ''|*[!0-9]* ) SECOND_PASS_MS=800;; esac; [ "$SECOND_PASS_MS" -gt 1500 ] && SECOND_PASS_MS=1500
@@ -180,7 +192,34 @@ start() { start_service; }
 # noisy procd syslog lines for internal calls with unknown/implicit actions.
 usage() {
 	[ -t 1 ] || return 0
-	echo "Usage: /etc/init.d/rrm_nr {start|stop|restart|reload|status|mapping|neighbors|cache|refresh|diag|metrics|timing_check|version}" >&2
+	cat >&2 <<'EOU'
+Syntax: /etc/init.d/rrm_nr [command]
+
+Available commands:
+	start           Start the service
+	stop            Stop the service
+	restart         Restart the service
+	reload          Reload configuration (SIGHUP daemon; no full restart)
+	enable          Enable service autostart
+	disable         Disable service autostart
+	enabled         Check if service is started on boot
+	running         Check if service is running
+	status          Show runtime state + metrics summary
+	mapping         Show iface->SSID mapping (live)
+	neighbors       Dump current neighbor lists (per iface)
+	cache           Show cache directory summary
+	refresh         Force immediate refresh (SIGUSR1)
+	diag            Probe readiness timings (per iface)
+	metrics         Show metrics counters (if present)
+	timing_check    Alias of diag (timing-check also accepted)
+	version         Show init script version + git hash (if available)
+	skiplist        Show configured skip_iface entries (effective)
+	help            This help
+
+Notes:
+	- timing_check / timing-check are interchangeable.
+	- skiplist reflects current UCI (list skip_iface ...) after normalization.
+EOU
 }
 help() { usage; }
 print_usage() { usage; }
@@ -212,6 +251,18 @@ reload_service() {
 		logger -t "${NAME}" -p daemon.info "Reload assembled $ready_count SSID entries (config-skipped $cfg_skipped_count, not-ready $not_ready_count)"
 	fi
 	[ -n "$CFG_SKIP_IFACES" ] && logger -t "${NAME}" -p daemon.info "Skip list: $CFG_SKIP_IFACES"
+
+	# Reload-time warning for unmatched skip entries
+	if [ -n "$CFG_SKIP_IFACES" ]; then
+		all_ifaces=$(ubus list hostapd.* 2>/dev/null | sed 's/^hostapd.//')
+		unmatched=""
+		for s in $CFG_SKIP_IFACES; do
+			found=0
+			for h in $all_ifaces; do [ "$s" = "$h" ] && found=1 && break; done
+			[ $found -eq 0 ] && unmatched="$unmatched $s"
+		done
+		[ -n "$unmatched" ] && logger -t "${NAME}" -p daemon.warning "Configured skip_iface entries not present: $(echo "$unmatched" | sed 's/^ *//')"
+	fi
 }
 
 status_service() {
@@ -220,6 +271,9 @@ status_service() {
 	if [ -f "$state_file" ]; then
 		printf 'rrm_nr status:\n'
 		sed 's/^/  /' "$state_file"
+		# Include currently configured skip list from UCI for clarity
+		load_rrm_nr_config
+		[ -n "$CFG_SKIP_IFACES" ] && printf '  configured_skip: %s\n' "$CFG_SKIP_IFACES"
 		[ -f "$metrics_file" ] && { printf '  metrics:\n'; sed 's/^/    /' "$metrics_file"; }
 	else
 		echo "rrm_nr status: runtime state not yet written (daemon starting?)"
@@ -264,7 +318,7 @@ version_service() {
 	printf '\n'
 }
 
-extra_command() { case "$1" in mapping|neighbors|cache|refresh|diag|metrics|timing-check|timing_check|version|status) return 0;; esac; return 1; }
+extra_command() { case "$1" in mapping|neighbors|cache|refresh|diag|metrics|timing-check|timing_check|version|status|skiplist) return 0;; esac; return 1; }
 mapping() { mapping_service; }
 neighbors() { neighbors_service; }
 cache() { cache_service; }
@@ -274,3 +328,5 @@ metrics() { metrics_service; }
 timing_check() { timing_check_service; }
 version() { version_service; }
 status() { status_service; }
+skiplist_service() { load_rrm_nr_config; if [ -n "$CFG_SKIP_IFACES" ]; then printf '%s\n' "$CFG_SKIP_IFACES"; else echo 'none'; fi }
+skiplist() { skiplist_service; }
