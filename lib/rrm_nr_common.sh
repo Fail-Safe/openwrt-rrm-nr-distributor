@@ -62,7 +62,13 @@ rrm_nr_sleep_ms() {
 
 
 rrm_get_own_quick() {
-	iface="$1"; max_ms=1000; interval_ms=200; elapsed=0; rc=0; out=""
+	iface="$1"
+	# Allow override (bounded) for slower environments via env RRM_NR_QUICK_MAX_MS (cap 5000)
+	max_ms=${RRM_NR_QUICK_MAX_MS:-2000}
+	# Basic numeric validation
+	case "$max_ms" in ''|*[!0-9]* ) max_ms=2000;; esac
+	[ "$max_ms" -gt 5000 ] && max_ms=5000
+	interval_ms=200; elapsed=0; rc=0; out=""
 	while [ "$elapsed" -le "$max_ms" ]; do
 		out=$(ubus call "hostapd.$iface" rrm_nr_get_own 2>/dev/null); rc=$?
 		if [ "$rc" -eq 0 ]; then
@@ -95,8 +101,11 @@ rrm_nr_map_ifaces() {
 #   Attempts quick readiness probe; prints ms + attempts (key=value) or error rc.
 rrm_nr_probe_iface() {
 	ifc="$1"; [ -z "$ifc" ] && return 1
+	max_ms=${RRM_NR_QUICK_MAX_MS:-2000}
+	case "$max_ms" in ''|*[!0-9]* ) max_ms=2000;; esac
+	[ "$max_ms" -gt 5000 ] && max_ms=5000
 	start=$(date +%s%3N 2>/dev/null); elapsed=0; interval=200; attempts=0; rc=1
-	while [ "$elapsed" -le 1000 ]; do
+	while [ "$elapsed" -le "$max_ms" ]; do
 		attempts=$((attempts+1))
 		ubus call "hostapd.$ifc" rrm_nr_get_own >/dev/null 2>&1; rc=$?
 		[ "$rc" -eq 0 ] && break
@@ -110,5 +119,5 @@ rrm_nr_probe_iface() {
 	done
 	end=$(date +%s%3N 2>/dev/null)
 	[ -n "$start" ] && [ -n "$end" ] && ms=$((end-start)) || ms=-1
-	printf 'iface=%s rc=%s attempts=%s ms=%s\n' "$ifc" "$rc" "$attempts" "$ms"
+	printf 'iface=%s rc=%s attempts=%s ms=%s max_ms=%s\n' "$ifc" "$rc" "$attempts" "$ms" "$max_ms"
 }
