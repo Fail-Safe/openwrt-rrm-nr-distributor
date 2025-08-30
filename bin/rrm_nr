@@ -326,6 +326,11 @@ do_updates(){
 			cache_hits=$((cache_hits+1))
 			debug "cache_hit: ssid='$ssid'"
 		fi
+		# Ensure at least one push after daemon start so hostapd gets baseline (even identical)
+		if [ "$nr_sets_sent" -eq 0 ] && [ "$changed" -eq 0 ]; then
+			changed=1
+			debug "force_initial_push: ssid='$ssid' (baseline deliver)"
+		fi
 		if [ "$changed" -eq 0 ]; then
 			# count suppressed sets for each iface in group (excluding skipped)
 			for gi in $group_ifcs; do case " $skip_ifaces " in *" $gi "*) continue ;; esac; nr_sets_suppressed=$((nr_sets_suppressed+1)); done
