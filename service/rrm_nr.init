@@ -10,8 +10,10 @@ RRM_NR_INIT_VERSION="2.0.0-beta"
 EXTRA_COMMANDS="mapping neighbors cache refresh diag metrics timing_check timing-check version status"
 EXTRA_HELP="  mapping        Show iface->SSID mapping\n  neighbors      Dump current neighbor lists\n  cache          Show cache directory summary\n  refresh        Force immediate refresh (SIGUSR1)\n  diag           Probe readiness timings (per iface)\n  metrics        Show metrics counters (if present)\n  timing_check   Alias of diag (timing-check also accepted)\n  version        Show init script version + git hash (if available)\n  status         Show runtime state + metrics summary\n"
 
-# Suppress noisy usage banner when procd (or other automation) invokes the script with no args
-[ $# -eq 0 ] && [ "${SUPPRESS_INIT_USAGE:-1}" = "1" ] && exit 0
+# NOTE: Do NOT early-exit on zero arguments; rc.common/procd may invoke the
+# script internally without an action while setting up. An early exit here
+# suppressed the start logic & logging. Usage banner suppression is handled
+# by overriding usage()/help()/print_usage() further below.
 
 . /lib/functions.sh
 . /lib/rrm_nr_common.sh 2>/dev/null || true
@@ -64,7 +66,10 @@ get_enabled_iface_count() {
 start_service() {
 	[ ! -f /etc/config/wireless ] && logger -t "${NAME}" -p daemon.error "/etc/config/wireless does not exist" && exit 1
 
+	# Initial startup log (version + config summary after load)
 	load_rrm_nr_config
+	logger -t "${NAME}" -p daemon.info "Starting (init ver=${RRM_NR_INIT_VERSION})"
+
 	if [ "$CFG_ENABLED" = "0" ]; then
 		logger -t "${NAME}" -p daemon.info "Disabled via UCI (rrm_nr.global.enabled=0)"
 		exit 0
@@ -179,9 +184,16 @@ boot() {
 # Explicit start wrapper (rc.common sometimes safer with direct start)
 start() { start_service; }
 
-usage() { :; } # suppress default usage banner noise (we provide custom commands)
-help() { :; }
-print_usage() { :; }
+# Minimal usage output (avoid rc.common default multi-line spam). We keep a
+# function so rc.common invalid action handling still works.
+usage() {
+	echo "Usage: /etc/init.d/rrm_nr {start|stop|restart|reload|status|mapping|neighbors|cache|refresh|diag|metrics|timing_check|version}" >&2
+}
+help() { usage; }
+print_usage() { usage; }
+
+# Optional invocation trace (set RRM_NR_LOG_INVOCATION=1 before calling to enable)
+[ "${RRM_NR_LOG_INVOCATION:-0}" = "1" ] && logger -t "${NAME}" -p daemon.debug "invoked: $0 $* (argc=$#)"
 
 service_triggers() {
 	procd_add_reload_trigger "network" "wireless"
