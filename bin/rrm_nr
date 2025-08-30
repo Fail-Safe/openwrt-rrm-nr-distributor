@@ -191,7 +191,11 @@ build_mapping(){
 	for i in $hostapd_members; do
 		ssid=$(iwinfo "$i" info 2>/dev/null | sed -n 's/^ESSID: "\(.*\)"$/\1/p')
 		[ -z "$ssid" ] && ssid=$(ubus call hostapd.$i bss | jsonfilter -e '@.ssid' 2>/dev/null)
-		[ -n "$ssid" ] && hm_put "$hashmap" "$i" "$ssid"
+		if [ -z "$ssid" ]; then
+			own_json=$(rrm_get_own_quick "$i" 2>/dev/null)
+			[ -n "$own_json" ] && ssid=$(echo "$own_json" | jsonfilter -e '$.value[1]' 2>/dev/null)
+		fi
+		[ -n "$ssid" ] && hm_put "$hashmap" "$i" "$ssid" || debug "build_mapping: iface=$i ssid=(missing)"
 	done
 	debug "build_mapping: $(for i in $hostapd_members; do s=$(hm_get "$hashmap" "$i"); [ -n "$s" ] && printf '%s=%s ' "$i" "$s"; done)"
 }
@@ -233,7 +237,11 @@ do_updates(){
 
 	# Unique list of SSIDs
 	ssid_list=$(cut -d'|' -f1 "$ssid_map" 2>/dev/null | sed '/^$/d' | sort -u)
-	[ -z "$ssid_list" ] && { rm -rf "$valdir" "$remote_tmp"; return; }
+	if [ -z "$ssid_list" ]; then
+		debug "do_updates: no local SSIDs mapped (skipping cache build)"
+		rm -rf "$valdir" "$remote_tmp"
+		return
+	fi
 
 	# Prepare cache directory
 	cache_dir="$state_dir/group_cache"; [ -d "$cache_dir" ] || mkdir -p "$cache_dir" 2>/dev/null
