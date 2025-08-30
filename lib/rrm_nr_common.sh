@@ -89,6 +89,10 @@ rrm_get_own_quick() {
 ## rrm_nr_map_ifaces
 # Outputs aligned columns: iface bssid chan freq_mhz ssid
 rrm_nr_map_ifaces() {
+	# Cache iw dev output once (channel/freq per underlying interface, keyed by MAC addr)
+	if [ -z "$_RRM_NR_IW_DEV_CACHE" ]; then
+		_RRM_NR_IW_DEV_CACHE=$(iw dev 2>/dev/null)
+	fi
 	for obj in $(ubus list hostapd.* 2>/dev/null); do
 		ifc=${obj#hostapd.}
 		ssid=""; bssid=""; chan=""; freq_mhz=""; ifname=""
@@ -128,26 +132,13 @@ rrm_nr_map_ifaces() {
 				fi
 			fi
 		done
-		# iwinfo fallback for SSID / channel / freq (prefer underlying ifname when present)
-		candidate_if="${ifname:-$ifc}"
-		if ip link show "$candidate_if" >/dev/null 2>&1; then
-			if [ -z "$ssid" ]; then
-				ssid=$(iwinfo "$candidate_if" info 2>/dev/null | sed -n 's/^ESSID: "\(.*\)"$/\1/p')
-			fi
-			if [ -z "$chan" ] || [ -z "$freq_mhz" ]; then
-				ch_line=$(iwinfo "$candidate_if" info 2>/dev/null | grep '^Channel:' || true)
-				if [ -n "$ch_line" ]; then
-					[ -z "$chan" ] && chan=$(echo "$ch_line" | sed -n 's/^Channel: *\([0-9][0-9]*\).*/\1/p')
-					paren=$(echo "$ch_line" | sed -n 's/^Channel: *[0-9][0-9]* (\([^)]*\)).*/\1/p')
-					if [ -n "$paren" ]; then
-						num=$(echo "$paren" | awk '{print $1}')
-						unit=$(echo "$paren" | awk '{print $2}')
-						case "$unit" in
-							G*|g*) freq_mhz=$(awk -v n="$num" 'BEGIN{printf "%d", (n*1000)+0.5}') ;;
-							M*|m*) freq_mhz=${num%.*} ;;
-						esac
-					fi
-				fi
+		# Deterministic channel/freq via iw dev (match BSSID, first channel line after address)
+		if { [ -z "$chan" ] || [ -z "$freq_mhz" ]; } && [ -n "$bssid" ] && [ "$bssid" != "(unknown)" ]; then
+			bsl=$(echo "$bssid" | tr 'A-F' 'a-f')
+			line=$(printf '%s\n' "$_RRM_NR_IW_DEV_CACHE" | awk -v mac="$bsl" 'BEGIN{IGNORECASE=1} tolower($0) ~ /addr/ && tolower($0) ~ mac {found=1; next} found && /channel [0-9]+/ {print; exit}')
+			if [ -n "$line" ]; then
+				[ -z "$chan" ] && chan=$(echo "$line" | sed -n 's/.*channel \([0-9][0-9]*\).*/\1/p')
+				[ -z "$freq_mhz" ] && freq_mhz=$(echo "$line" | sed -n 's/.*(\([0-9][0-9]*\) MHz).*/\1/p')
 			fi
 		fi
 		[ -z "$ssid" ] && ssid="(unknown)"
