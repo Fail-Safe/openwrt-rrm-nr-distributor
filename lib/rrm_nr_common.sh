@@ -91,7 +91,7 @@ rrm_get_own_quick() {
 rrm_nr_map_ifaces() {
 	for obj in $(ubus list hostapd.* 2>/dev/null); do
 		ifc=${obj#hostapd.}
-		ssid=""; bssid=""; chan=""; freq_mhz=""
+		ssid=""; bssid=""; chan=""; freq_mhz=""; ifname=""
 		for method in rrm_nr_get_own get_config bss; do
 			[ -n "$ssid" ] && [ -n "$bssid" ] && [ -n "$chan" ] && [ -n "$freq_mhz" ] && break
 			json=$(ubus call "$obj" "$method" 2>/dev/null || true) || json=""
@@ -105,6 +105,9 @@ rrm_nr_map_ifaces() {
 				ssid=$(echo "$json" | jsonfilter -e '@.value[1]' 2>/dev/null)
 				[ -z "$bssid" ] && bssid=$(echo "$json" | jsonfilter -e '@.value[0]' 2>/dev/null)
 			fi
+			# Underlying netdev (varies by build: iface / ifname)
+			[ -z "$ifname" ] && ifname=$(echo "$json" | jsonfilter -e '@.iface' 2>/dev/null)
+			[ -z "$ifname" ] && ifname=$(echo "$json" | jsonfilter -e '@.ifname' 2>/dev/null)
 			# Channel / Frequency
 			[ -z "$chan" ] && chan=$(echo "$json" | jsonfilter -e '@.channel' 2>/dev/null)
 			[ -z "$chan" ] && chan=$(echo "$json" | jsonfilter -e '@.bss[0].channel' 2>/dev/null)
@@ -125,13 +128,14 @@ rrm_nr_map_ifaces() {
 				fi
 			fi
 		done
-		# iwinfo fallback for SSID / channel / freq
-		if ip link show "$ifc" >/dev/null 2>&1; then
+		# iwinfo fallback for SSID / channel / freq (prefer underlying ifname when present)
+		candidate_if="${ifname:-$ifc}"
+		if ip link show "$candidate_if" >/dev/null 2>&1; then
 			if [ -z "$ssid" ]; then
-				ssid=$(iwinfo "$ifc" info 2>/dev/null | sed -n 's/^ESSID: "\(.*\)"$/\1/p')
+				ssid=$(iwinfo "$candidate_if" info 2>/dev/null | sed -n 's/^ESSID: "\(.*\)"$/\1/p')
 			fi
 			if [ -z "$chan" ] || [ -z "$freq_mhz" ]; then
-				ch_line=$(iwinfo "$ifc" info 2>/dev/null | grep '^Channel:' || true)
+				ch_line=$(iwinfo "$candidate_if" info 2>/dev/null | grep '^Channel:' || true)
 				if [ -n "$ch_line" ]; then
 					[ -z "$chan" ] && chan=$(echo "$ch_line" | sed -n 's/^Channel: *\([0-9][0-9]*\).*/\1/p')
 					paren=$(echo "$ch_line" | sed -n 's/^Channel: *[0-9][0-9]* (\([^)]*\)).*/\1/p')
