@@ -177,6 +177,8 @@ Environment mapping (init script → daemon):
 - `RRM_NR_JITTER_MAX` → `JITTER_MAX`
 - `RRM_NR_DEBUG` → enables debug log path
 - `RRM_NR_UMDNS_REFRESH_INTERVAL` → `UMDNS_REFRESH_INTERVAL`
+- `RRM_NR_QUICK_MAX_MS` → max milliseconds spent in first-pass adaptive iface readiness (default 2000, cap 5000)
+- `RRM_NR_SECOND_PASS_MS` → delay in milliseconds before the targeted second-pass fetch (default 800, cap 1500)
 
 All options are optional; defaults are compiled into the script.
 
@@ -257,6 +259,7 @@ Pass `--fix` later if auto-fix logic is introduced (currently just reports).
 - Minimal dependencies: BusyBox POSIX shell only (avoid `[[` and arrays). `jsonfilter` is assumed present on OpenWrt.
 - Assumes hostapd exposes `rrm_nr_get_own`; if upstream API changes, implement a fallback probe sequence.
 - Adaptive quick retry: uses 200ms increments when high-resolution sleep available, else degrades gracefully to a single 1s wait (bounded). No hard multi-second delay is baked in; timing analysis shows typical readiness ≤0.2s on tested hardware.
+	- After initial assembly you will see a concise line: `Assembled <n> SSID entries (skipped <k>)` or `(no skips)` summarizing startup coverage.
 
 ### Persistence Across Upgrades (sysupgrade)
 

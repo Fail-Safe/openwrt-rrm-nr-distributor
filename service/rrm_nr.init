@@ -154,6 +154,20 @@ start_service() {
 			logger -t "${NAME}" -p $prio "Skipped $count interface${plural} not ready after second pass: $final_unready_display"
 		fi
 
+	# Summary log: how many SSIDs assembled + whether any were skipped (single concise line)
+	if [ -n "$final_unready" ]; then
+		_saved_IFS=$IFS
+		# Set IFS to space and tab for word splitting
+		IFS=" 	"
+		# shellcheck disable=SC2086
+		set -- $final_unready
+		skipped=$#
+		IFS=$_saved_IFS
+		logger -t "${NAME}" -p daemon.info "Assembled $ssid_count SSID entries (skipped $skipped)"
+	else
+		logger -t "${NAME}" -p daemon.info "Assembled $ssid_count SSID entries (no skips)"
+	fi
+
 		rrm_own="${rrm_own#*+}"
 		IFS='+'
 		# shellcheck disable=SC2086
