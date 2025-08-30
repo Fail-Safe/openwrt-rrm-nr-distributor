@@ -132,11 +132,16 @@ start_service() {
 
 	# Summarize skipped interfaces (optional concise count)
 	if [ -n "$skipped_unready" ]; then
-		count=0
-		for _if in $skipped_unready; do count=$((count + 1)); done
-		# Trim leading whitespace for display
-		skipped_unready_display=${skipped_unready# }
-		logger -t "${NAME}" -p daemon.warning "Summary: skipped $count interface(s) not ready after quick retries: $skipped_unready_display"
+		# Temporarily switch IFS to space+tab to count space-delimited names we accumulated
+		_saved_IFS=$IFS
+		IFS=' 	'
+		# shellcheck disable=SC2086 # intentional word splitting for counting
+		set -- $skipped_unready
+		count=$#
+		IFS=$_saved_IFS
+		skipped_unready_display=${skipped_unready# } # Trim leading space
+		plural="s"; [ "$count" -eq 1 ] && plural=""
+		logger -t "${NAME}" -p daemon.warning "Summary: skipped $count interface${plural} not ready after quick retries: $skipped_unready_display"
 	fi
 
 	rrm_own="${rrm_own#*+}"
