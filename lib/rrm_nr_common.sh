@@ -92,17 +92,35 @@ rrm_nr_map_ifaces() {
 	for obj in $(ubus list hostapd.* 2>/dev/null); do
 		ifc=${obj#hostapd.}
 		ssid=""
-		# Primary: bss JSON (contains ssid reliably even when iwinfo name differs)
-		bss_json=$(ubus call "$obj" bss 2>/dev/null || true)
-		if [ -n "$bss_json" ]; then
-			ssid=$(echo "$bss_json" | jsonfilter -e '@.ssid' 2>/dev/null)
-		fi
-		# Fallback: rrm_nr_get_own may include ssid in some builds
-		if [ -z "$ssid" ]; then
-			own_json=$(ubus call "$obj" rrm_nr_get_own 2>/dev/null || true)
-			[ -n "$own_json" ] && ssid=$(echo "$own_json" | jsonfilter -e '@.ssid' 2>/dev/null)
-		fi
-		# Final fallback: attempt iwinfo only if interface is directly present (some builds expose it)
+		# Try several ubus methods (put rrm_nr_get_own first since others may be absent)
+		for method in rrm_nr_get_own get_config bss; do
+			[ -n "$ssid" ] && break
+			json=$(ubus call "$obj" "$method" 2>/dev/null || true) || json=""
+			[ -z "$json" ] && continue
+			# Direct simple forms
+			ssid=$(echo "$json" | jsonfilter -e '@.ssid' 2>/dev/null)
+			[ -z "$ssid" ] && ssid=$(echo "$json" | jsonfilter -e '@.bss[0].ssid' 2>/dev/null)
+			# rrm_nr_get_own exposes value array: [ bssid, ssid, ... ]
+			if [ -z "$ssid" ] && [ "$method" = "rrm_nr_get_own" ]; then
+				ssid=$(echo "$json" | jsonfilter -e '@.value[1]' 2>/dev/null)
+			fi
+			# Numeric array form
+			if [ -z "$ssid" ] && echo "$json" | grep -q '"ssid" *:' && echo "$json" | grep -q '\['; then
+				arr=$(echo "$json" | sed -n 's/.*"ssid" *: *\[\([^]]*\)\].*/\1/p' | tr -d '"')
+				if echo "$arr" | grep -qE '^[0-9][0-9, ]*$'; then
+					ssid=$(echo "$arr" | tr ',' ' ' | awk '{for(i=1;i<=NF;i++){ if($i!="") printf "%c", $i }}')
+				fi
+			fi
+			# Hex string fallback (some builds may export hex without quotes inside array we already tried)
+			if [ -z "$ssid" ]; then
+				hex=$(echo "$json" | sed -n 's/.*"ssid" *: *"\([0-9A-Fa-f]\{2,\}\)".*/\1/p')
+				if [ -n "$hex" ] && echo "$hex" | grep -qE '^[0-9A-Fa-f]+$'; then
+					# Decode hex pairs to ASCII (printables only)
+					ssid=$(echo "$hex" | sed 's/../& /g' | awk '{for(i=1;i<=NF;i++){ c=strtonum("0x"$i); if(c>=32 && c<=126) printf "%c", c; else printf "?" }}')
+				fi
+			fi
+		done
+		# Last resort: iwinfo if an actual netdev matches iface name
 		if [ -z "$ssid" ] && ip link show "$ifc" >/dev/null 2>&1; then
 			ssid=$(iwinfo "$ifc" info 2>/dev/null | sed -n 's/^ESSID: "\(.*\)"$/\1/p')
 		fi
