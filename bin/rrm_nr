@@ -220,8 +220,16 @@ do_updates(){
 		ssid=$(hm_get "$hashmap" "$ifc")
 		[ -z "$ssid" ] && continue
 		v_json=$(rrm_get_own_quick "$ifc") || { debug "$ifc: rrm_nr_get_own not ready (skipping this cycle)"; continue; }
-		v=$(echo "$v_json" | jsonfilter -e '$.value')
-		[ -n "$v" ] && printf '%s' "$v" > "$valdir/$ifc"
+		v_bssid=$(echo "$v_json" | jsonfilter -e '$.value[0]' 2>/dev/null)
+		v_ssid=$(echo  "$v_json" | jsonfilter -e '$.value[1]' 2>/dev/null)
+		v_hex=$(echo   "$v_json" | jsonfilter -e '$.value[2]' 2>/dev/null)
+		if [ -n "$v_bssid" ] && [ -n "$v_ssid" ] && [ -n "$v_hex" ]; then
+			v="[\"$v_bssid\",\"$v_ssid\",\"$v_hex\"]"
+			printf '%s' "$v" > "$valdir/$ifc"
+			debug "$ifc: own_nr=$v"
+		else
+			debug "$ifc: incomplete own_nr (bssid='$v_bssid' ssid='$v_ssid' hex_len=${#v_hex})"
+		fi
 		echo "$ssid|$ifc" >> "$ssid_map"
 	done
 
@@ -258,11 +266,12 @@ do_updates(){
 		# remote entries appended
 		[ -s "$remote_tmp" ] && cat "$remote_tmp" >> "$cand_tmp"
 		# If only one line and it belongs to the interface itself there will be no neighbors; remove self contribution later per iface.
-		[ ! -s "$cand_tmp" ] && { rm -f "$cand_tmp"; continue; }
+		[ ! -s "$cand_tmp" ] && { rm -f "$cand_tmp"; debug "ssid='$ssid': no candidates"; continue; }
 		# De-dup via sort -u (still cheaper than per-iface ubus loops) – could be optimized later.
 		unique=$(sort -u "$cand_tmp" | sed '/^$/d')
 		rm -f "$cand_tmp"
-		[ -z "$unique" ] && continue
+		[ -z "$unique" ] && { debug "ssid='$ssid': unique list empty"; continue; }
+		debug "ssid='$ssid': candidates_count=$(printf '%s\n' "$unique" | wc -l 2>/dev/null)"
 		# Prepare JSON array
 		compact=$(printf '%s\n' "$unique" | paste -sd, -); list="[$compact]"
 		# Group cache key
