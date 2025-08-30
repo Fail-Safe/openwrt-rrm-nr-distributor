@@ -271,6 +271,7 @@ do_updates(){
 		unique=$(sort -u "$cand_tmp" | sed '/^$/d')
 		rm -f "$cand_tmp"
 		[ -z "$unique" ] && { debug "ssid='$ssid': unique list empty"; continue; }
+		debug "ssid='$ssid': unique_lines=$(printf '%s' "$unique" | wc -l 2>/dev/null) sample_first='$(printf '%s' "$unique" | head -n1)'"
 		debug "ssid='$ssid': candidates_count=$(printf '%s\n' "$unique" | wc -l 2>/dev/null)"
 		# Prepare JSON array
 		compact=$(printf '%s\n' "$unique" | paste -sd, -)
