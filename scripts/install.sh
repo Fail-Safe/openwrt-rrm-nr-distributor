@@ -22,8 +22,8 @@ FORCE_CONFIG=0
 START_SERVICE=1
 ADD_SYSUPGRADE=0
 DEPS_MODE="prompt"       # prompt | yes | no
-INSTALL_OPTIONAL=0        # install optional deps automatically
-FIX_WIRELESS=0            # auto-add missing ieee80211k/bss_transition
+INSTALL_OPTIONAL=0       # install optional deps automatically
+FIX_WIRELESS=0           # auto-add missing ieee80211k/bss_transition
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -290,7 +290,8 @@ config rrm_nr 'global'
   option debug '0'
   option umdns_refresh_interval '30'
   option umdns_settle_delay '0'
-  # option skip_ifaces ''   # space separated list e.g. "wlan1-1 wlan0"
+  # list skip_iface 'wlan0'
+  # list skip_iface 'wlan1-1'
 EOC
   echo "[rrm_nr] Installed default /etc/config/rrm_nr"
 else

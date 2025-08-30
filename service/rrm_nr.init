@@ -35,10 +35,20 @@ load_rrm_nr_config() {
 	config_get CFG_DEBUG global debug 0
 	config_get CFG_UMDNS_REFRESH_INTERVAL global umdns_refresh_interval 30
 	config_get CFG_UMDNS_SETTLE_DELAY global umdns_settle_delay 0
-	config_get skip_ifaces global skip_ifaces ""
-	[ -n "$skip_ifaces" ] && CFG_SKIP_IFACES="${CFG_SKIP_IFACES} ${skip_ifaces}"
-	config_list_foreach global skip_iface append_skip_iface
+
+	# List syntax: one 'list skip_iface <iface>' per interface
+	config_list_foreach global skip_iface append_skip_iface 2>/dev/null || true
+
 	CFG_SKIP_IFACES=$(normalize_iflist "$CFG_SKIP_IFACES")
+	# Accept optional 'hostapd.' prefixes (user convenience); strip them.
+	if [ -n "$CFG_SKIP_IFACES" ]; then
+		new_list=""
+		for x in $CFG_SKIP_IFACES; do
+			case "$x" in hostapd.*) x=${x#hostapd.};; esac
+			new_list="$new_list $x"
+		done
+		CFG_SKIP_IFACES=$(normalize_iflist "$new_list")
+	fi
 }
 
 get_wifi_iface_count() { grep -c 'wifi-iface' /etc/config/wireless; }

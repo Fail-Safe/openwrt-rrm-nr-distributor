@@ -25,7 +25,7 @@ Purpose: Enable AI agents to make fast, safe improvements to this OpenWrt 802.11
 - Positional ordering: Append only `SSIDn=` sequentially; never renumber earlier entries (consumer stability).
 - Error strategy: Hard fail (exit) for structural issues (no wireless config, zero enabled ifaces, timeout waiting for hostapd objects). Ubus rc=4 during initial fetch handled with bounded adaptive retry (no longer restarts wpad).
 - Shell style: Strict POSIX BusyBox ash; avoid arrays, `[[ ... ]]`, process substitution, bashisms.
-- Skip list: `skip_ifaces` UCI option (space‑separated) plus future possible per‑iface disable flag (not yet implemented) — keep skip logic mirrored in counting & enumeration.
+- Skip list: `list skip_iface '<iface>'` UCI entries (one per interface) plus future possible per‑iface disable flag (not yet implemented) — keep skip logic mirrored in counting & enumeration.
 - Version: `RRM_NR_INIT_VERSION` constant in init script (bump on release tagging).
 - Metrics/state: `/tmp/rrm_nr_runtime` (effective params / cycle info), `/tmp/rrm_nr_metrics` (counters); treat as ephemeral.
 - Signals: HUP (reload UCI), USR1 (forced refresh), USR2 (metrics reset).
@@ -73,7 +73,7 @@ Purpose: Enable AI agents to make fast, safe improvements to this OpenWrt 802.11
 | debug | Verbose logging | Enables extra debug lines |
 | umdns_refresh_interval | Min seconds between mDNS refresh pushes | Rate limit |
 | umdns_settle_delay | Sleep seconds after a refresh | 0 default |
-| skip_ifaces | Space separated ifaces to exclude | Applied at assembly |
+| skip_iface | List entries (one per iface) to exclude | Applied at assembly |
 
 ## Installer Flags (scripts/install.sh)
 - `--add-sysupgrade`: add binary/init/lib to `/etc/sysupgrade.conf` (config already auto‑preserved).

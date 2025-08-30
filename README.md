@@ -162,7 +162,7 @@ config rrm_nr 'global'
 	option umdns_settle_delay '0'      # Extra seconds to sleep immediately after an umdns update (default 0)
 ```
 
-Live changes: Most runtime tunables (intervals, jitter, debug, umdns refresh, settle delay, skip_ifaces) can be reloaded without a full restart:
+Live changes: Most runtime tunables (intervals, jitter, debug, umdns refresh, settle delay, skip_iface) can be reloaded without a full restart:
 
 ```sh
 uci set rrm_nr.global.update_interval=45
@@ -191,20 +191,23 @@ Out-of-range values are sanitized silently; check `/etc/init.d/rrm_nr status` af
 
 ### Skipping Interfaces
 
-Specify interface names (as they appear after `hostapd.`) in `/etc/config/rrm_nr`:
+Add one `list skip_iface '<iface>'` per interface (names are the portion after `hostapd.`). Example:
 
 ```
 config rrm_nr 'global'
-	option skip_ifaces 'wlan1-1 wlan0'
+	list skip_iface 'wlan0'
+	list skip_iface 'wlan1-1'
 ```
 
-Those interfaces are omitted from TXT assembly and runtime neighbor list updates.
+You may (optionally) include a `hostapd.` prefix; it will be stripped automatically (e.g. `hostapd.wlan0`).
+
+Skipped interfaces are omitted from TXT assembly and neighbor list updates.
 
 ### Reloading Configuration
 
 `/etc/init.d/rrm_nr reload` triggers a SIGHUP which now:
 
-1. Re-reads UCI for: update_interval, jitter_max, umdns_refresh_interval, umdns_settle_delay, debug, skip_ifaces.
+1. Re-reads UCI for: update_interval, jitter_max, umdns_refresh_interval, umdns_settle_delay, debug, skip_iface.
 2. Applies sanity caps (min 5s interval; jitter ≤ half interval; umdns refresh ≥5s).
 3. Rebuilds interface→SSID mapping and reapplies skip list.
 4. Logs a concise before→after summary (`Reload (SIGHUP): U=60 J=10 ... -> U=45 J=5 ...`). If any timing shrinks, the current sleep is interrupted for an immediate cycle.
