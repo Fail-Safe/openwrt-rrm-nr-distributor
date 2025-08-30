@@ -59,41 +59,41 @@ get_enabled_iface_count() {
 }
 
 start_service() {
-		[ ! -f /etc/config/wireless ] && logger -t "${NAME}" -p daemon.error "/etc/config/wireless does not exist" && exit 1
+	[ ! -f /etc/config/wireless ] && logger -t "${NAME}" -p daemon.error "/etc/config/wireless does not exist" && exit 1
 
-		load_rrm_nr_config
-		if [ "$CFG_ENABLED" = "0" ]; then
-			logger -t "${NAME}" -p daemon.info "Disabled via UCI (rrm_nr.global.enabled=0)"
-			exit 0
-		fi
+	load_rrm_nr_config
+	if [ "$CFG_ENABLED" = "0" ]; then
+		logger -t "${NAME}" -p daemon.info "Disabled via UCI (rrm_nr.global.enabled=0)"
+		exit 0
+	fi
 
-		wifi_iface_count=$(get_wifi_iface_count)
-		[ "$wifi_iface_count" -eq 0 ] && logger -t "${NAME}" -p daemon.error "No wifi-iface stanzas found in /etc/config/wireless" && exit 1
+	wifi_iface_count=$(get_wifi_iface_count)
+	[ "$wifi_iface_count" -eq 0 ] && logger -t "${NAME}" -p daemon.error "No wifi-iface stanzas found in /etc/config/wireless" && exit 1
 
-		enabled_iface_count=$(get_enabled_iface_count)
-		[ "$enabled_iface_count" -eq 0 ] && logger -t "${NAME}" -p daemon.error "No enabled wifi-iface stanzas found in /etc/config/wireless" && exit 1
+	enabled_iface_count=$(get_enabled_iface_count)
+	[ "$enabled_iface_count" -eq 0 ] && logger -t "${NAME}" -p daemon.error "No enabled wifi-iface stanzas found in /etc/config/wireless" && exit 1
 
-		logger -t "${NAME}" -p daemon.info "Waiting for all wireless interfaces to initialize."
-		wait_start=$(date +%s 2>/dev/null); [ -z "$wait_start" ] && wait_start=0
+	logger -t "${NAME}" -p daemon.info "Waiting for all wireless interfaces to initialize."
+	wait_start=$(date +%s 2>/dev/null); [ -z "$wait_start" ] && wait_start=0
 		timeout_sec=$((5 * 60))
-		while :; do
-			current=$(ubus list hostapd.* | wc -l)
-			expected=$(get_enabled_iface_count)
-			[ "$current" = "$expected" ] && break
-			now=$(date +%s 2>/dev/null); [ -z "$now" ] && now=$wait_start
-			if [ $((now - wait_start)) -ge "$timeout_sec" ]; then
-				logger -t "${NAME}" -p daemon.error "Timeout waiting for hostapd objects (got $current / expected $expected). Check wireless config & hostapd logs." && exit 1
-			fi
-			sleep 3
-		done
-		logger -t "${NAME}" -p daemon.info "All wireless interfaces are initialized."
+	while :; do
+		current=$(ubus list hostapd.* | wc -l)
+		expected=$(get_enabled_iface_count)
+		[ "$current" = "$expected" ] && break
+		now=$(date +%s 2>/dev/null); [ -z "$now" ] && now=$wait_start
+		if [ $((now - wait_start)) -ge "$timeout_sec" ]; then
+			logger -t "${NAME}" -p daemon.error "Timeout waiting for hostapd objects (got $current / expected $expected). Check wireless config & hostapd logs." && exit 1
+		fi
+		sleep 3
+	done
+	logger -t "${NAME}" -p daemon.info "All wireless interfaces are initialized."
 
-		RRM_NR_UPDATE_INTERVAL=$CFG_UPDATE_INTERVAL
-		RRM_NR_JITTER_MAX=$CFG_JITTER_MAX
-		RRM_NR_DEBUG=$CFG_DEBUG
-		RRM_NR_UMDNS_REFRESH_INTERVAL=$CFG_UMDNS_REFRESH_INTERVAL
-		RRM_NR_UMDNS_SETTLE_DELAY=$CFG_UMDNS_SETTLE_DELAY
-		skip_ifaces=$CFG_SKIP_IFACES
+	RRM_NR_UPDATE_INTERVAL=$CFG_UPDATE_INTERVAL
+	RRM_NR_JITTER_MAX=$CFG_JITTER_MAX
+	RRM_NR_DEBUG=$CFG_DEBUG
+	RRM_NR_UMDNS_REFRESH_INTERVAL=$CFG_UMDNS_REFRESH_INTERVAL
+	RRM_NR_UMDNS_SETTLE_DELAY=$CFG_UMDNS_SETTLE_DELAY
+	skip_ifaces=$CFG_SKIP_IFACES
 
 		rrm_own=""
 		ssid_count=0
@@ -106,8 +106,8 @@ start_service() {
 		case "$SECOND_PASS_MS" in ''|*[!0-9]* ) SECOND_PASS_MS=800;; esac
 		[ "$SECOND_PASS_MS" -gt 1500 ] && SECOND_PASS_MS=1500
 
-		# First pass (adaptive quick function per iface)
-		for value in $(ubus list hostapd.*); do
+	# First pass (adaptive quick function per iface)
+	for value in $(ubus list hostapd.*); do
 			iface_name=${value#hostapd.}
 			skip=0
 			for s in $skip_ifaces; do [ "$iface_name" = "$s" ] && skip=1 && break; done
@@ -122,9 +122,9 @@ start_service() {
 			rrm_own="${rrm_own}+SSID${ssid_count}=${curr_value}"
 		done
 
-		[ -n "$unready_list" ] && rrm_nr_sleep_ms "$SECOND_PASS_MS"
+	[ -n "$unready_list" ] && rrm_nr_sleep_ms "$SECOND_PASS_MS"
 		final_unready=""
-		if [ -n "$unready_list" ]; then
+	if [ -n "$unready_list" ]; then
 			_saved_IFS=$IFS; IFS=" 	"
 			# shellcheck disable=SC2086
 			for iface_name in $unready_list; do
@@ -139,7 +139,7 @@ start_service() {
 			IFS=$_saved_IFS
 		fi
 
-		if [ -n "$final_unready" ]; then
+	if [ -n "$final_unready" ]; then
 			_saved_IFS=$IFS; IFS=" 	"; set -- $final_unready; count=$#; IFS=$_saved_IFS; final_unready_display=${final_unready# }
 			plural="s"; [ "$count" -eq 1 ] && plural=""
 			prio=daemon.info; [ "$ssid_count" -eq 0 ] && prio=daemon.warning
@@ -152,9 +152,9 @@ start_service() {
 		set -- $rrm_own
 		IFS=' '
 
-		procd_open_instance
-		procd_set_param term_timeout 5
-		procd_set_param env \
+	procd_open_instance
+	procd_set_param term_timeout 5
+	procd_set_param env \
 			RRM_NR_UPDATE_INTERVAL="$RRM_NR_UPDATE_INTERVAL" \
 			RRM_NR_JITTER_MAX="$RRM_NR_JITTER_MAX" \
 			RRM_NR_DEBUG="$RRM_NR_DEBUG" \
@@ -163,10 +163,11 @@ start_service() {
 			RRM_NR_SKIP_IFACES="$skip_ifaces" \
 			RRM_NR_QUICK_MAX_MS="$QUICK_MAX_MS" \
 			RRM_NR_SECOND_PASS_MS="$SECOND_PASS_MS"
-		procd_set_param command /bin/sh "/usr/bin/rrm_nr"
-		procd_add_mdns "rrm_nr" "udp" "5247" "$@"
-		procd_close_instance
-	}
+	procd_set_param command /bin/sh "/usr/bin/rrm_nr"
+	procd_add_mdns "rrm_nr" "udp" "5247" "$@"
+	procd_close_instance
+	return 0
+}
 
 boot() {
 	start
