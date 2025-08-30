@@ -166,6 +166,15 @@ start_service() {
 		set -- $rrm_own
 		IFS=' '
 
+		# Debug: show assembled SSID argument list (count + first few)
+		if [ "$CFG_DEBUG" = "1" ]; then
+			_show=""
+			c=0
+			for a in "$@"; do c=$((c+1)); [ $c -le 5 ] && _show="${_show}${_show:+ }$a"; done
+			[ $c -gt 5 ] && _show="${_show} ... (total $c)" || _show="${_show} (total $c)"
+			logger -t "${NAME}" -p daemon.debug "Prepared SSID args: ${_show}"
+		fi
+
 	procd_open_instance
 	# Ensure runtime/cache directory skeleton exists so daemon can write early
 	mkdir -p /tmp/rrm_nr_state/group_cache 2>/dev/null || true
@@ -180,7 +189,7 @@ start_service() {
 			RRM_NR_QUICK_MAX_MS="$QUICK_MAX_MS" \
 			RRM_NR_SECOND_PASS_MS="$SECOND_PASS_MS"
 	# Launch daemon with assembled SSIDn= arguments so it can build neighbor reports
-	procd_set_param command /bin/sh "/usr/bin/rrm_nr" "$@"
+	procd_set_param command /usr/bin/rrm_nr "$@"
 	procd_add_mdns "rrm_nr" "udp" "5247" "$@"
 	procd_close_instance
 	return 0
