@@ -236,7 +236,7 @@ do_updates(){
 	# Gather remote (mDNS) entries once
 	remote_tmp=$(mktemp 2>/dev/null) || remote_tmp=/tmp/rrm_nr_remote.$$
 	ubus call umdns browse '{ "service":"_rrm_nr._udp", "array": true }' 2>/dev/null | \
-		jsonfilter -e '@["_rrm_nr._udp"][*].txt[*]' 2>/dev/null | sed 's/"//g' | sed -n 's/^SSID[0-9]*=//p' > "$remote_tmp" 2>/dev/null || true
+		jsonfilter -e '@["_rrm_nr._udp"][*].txt[*]' 2>/dev/null | sed -n 's/^SSID[0-9]*=//p' > "$remote_tmp" 2>/dev/null || true
 	# Count remote entries merged this cycle (additive cumulative counter)
 	if [ -s "$remote_tmp" ]; then
 		cnt=$(wc -l < "$remote_tmp" 2>/dev/null); [ -n "$cnt" ] && remote_entries_merged=$((remote_entries_merged + cnt))
@@ -273,14 +273,35 @@ do_updates(){
 		[ -z "$unique" ] && { debug "ssid='$ssid': unique list empty"; continue; }
 		debug "ssid='$ssid': unique_lines=$(printf '%s' "$unique" | wc -l 2>/dev/null) sample_first='$(printf '%s' "$unique" | head -n1)'"
 		debug "ssid='$ssid': candidates_count=$(printf '%s\n' "$unique" | wc -l 2>/dev/null)"
-		# Prepare JSON array
-		compact=$(printf '%s\n' "$unique" | paste -sd, -)
-		if [ -n "$compact" ]; then
-			list="[$compact]"
-		else
-			list="[]"
+		# Canonicalize each candidate line to strictly formatted JSON ["bssid","ssid","hex"]
+		canon=""
+		printf '%s\n' "$unique" | while IFS= read -r line; do
+			# Trim leading/trailing spaces
+			l=$(printf '%s' "$line" | sed 's/^ *//;s/ *$//')
+			# Remove enclosing quotes spaces patterns to unify
+			if printf '%s' "$l" | grep -q '^\['; then
+				# Remove outer brackets, then split by comma (3 fields expected)
+				core=$(printf '%s' "$l" | sed -E 's/^\[ *//; s/ *\]$//')
+				bssid=$(printf '%s' "$core" | awk -F',' '{print $1}' | sed 's/[" ]//g')
+				ssid_part=$(printf '%s' "$core" | awk -F',' '{print $2}')
+				hex=$(printf '%s' "$core" | awk -F',' '{print $3}' | sed 's/[" ]//g')
+				# Re-trim
+				ssid_part=$(printf '%s' "$ssid_part" | sed 's/^ *//;s/ *$//')
+				# Ensure ssid_part has surrounding quotes removed then re-add
+				ssid_clean=$(printf '%s' "$ssid_part" | sed 's/^"//;s/"$//')
+				[ -n "$bssid" ] && [ -n "$ssid_clean" ] && [ -n "$hex" ] && printf '["%s","%s","%s"]\n' "$bssid" "$ssid_clean" "$hex"
+			fi
+		done > "$valdir/canon.$$"
+		canon=$(cat "$valdir/canon.$$" 2>/dev/null)
+		rm -f "$valdir/canon.$$" 2>/dev/null || true
+		[ -z "$canon" ] && { debug "group_build: ssid='$ssid' canonicalization produced empty set"; list="[]"; compact=""; }
+		if [ -z "$list" ] || [ -z "$canon" ]; then
+			# Build list from canon lines
+			# Join with commas without relying on paste (may be absent on busybox)
+			compact=$(printf '%s\n' "$canon" | awk 'NF{ if(n)printf(","); printf("%s",$0); n=1 }')
+			[ -n "$compact" ] && list="[$compact]" || list="[]"
 		fi
-		debug "group_build: ssid='$ssid' compact_len=${#compact} list='$(printf '%.120s' "$list")'"
+		debug "group_build: ssid='$ssid' canon_count=$(printf '%s\n' "$canon" | sed '/^$/d' | wc -l 2>/dev/null) compact_len=${#compact} list_sample='$(printf '%.120s' "$list")'"
 		# Group cache key
 		ssid_hash=$(printf '%s' "$ssid" | md5sum 2>/dev/null | awk '{print $1}')
 		[ -z "$ssid_hash" ] && ssid_hash=$(printf '%s' "$ssid" | wc -c)
