@@ -184,9 +184,10 @@ boot() {
 # Explicit start wrapper (rc.common sometimes safer with direct start)
 start() { start_service; }
 
-# Minimal usage output (avoid rc.common default multi-line spam). We keep a
-# function so rc.common invalid action handling still works.
+# Minimal usage output only when interactive (attached to a TTY) to avoid
+# noisy procd syslog lines for internal calls with unknown/implicit actions.
 usage() {
+	[ -t 1 ] || return 0
 	echo "Usage: /etc/init.d/rrm_nr {start|stop|restart|reload|status|mapping|neighbors|cache|refresh|diag|metrics|timing_check|version}" >&2
 }
 help() { usage; }
