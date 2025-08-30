@@ -180,6 +180,8 @@ boot() {
 start() { start_service; }
 
 usage() { :; } # suppress default usage banner noise (we provide custom commands)
+help() { :; }
+print_usage() { :; }
 
 service_triggers() {
 	procd_add_reload_trigger "network" "wireless"
