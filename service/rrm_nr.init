@@ -10,6 +10,9 @@ RRM_NR_INIT_VERSION="2.0.0-beta"
 EXTRA_COMMANDS="mapping neighbors cache refresh diag metrics timing_check timing-check version status"
 EXTRA_HELP="  mapping        Show iface->SSID mapping\n  neighbors      Dump current neighbor lists\n  cache          Show cache directory summary\n  refresh        Force immediate refresh (SIGUSR1)\n  diag           Probe readiness timings (per iface)\n  metrics        Show metrics counters (if present)\n  timing_check   Alias of diag (timing-check also accepted)\n  version        Show init script version + git hash (if available)\n  status         Show runtime state + metrics summary\n"
 
+# Suppress noisy usage banner when procd (or other automation) invokes the script with no args
+[ $# -eq 0 ] && [ "${SUPPRESS_INIT_USAGE:-1}" = "1" ] && exit 0
+
 . /lib/functions.sh
 . /lib/rrm_nr_common.sh 2>/dev/null || true
 
