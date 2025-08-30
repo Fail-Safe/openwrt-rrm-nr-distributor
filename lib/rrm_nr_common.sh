@@ -87,22 +87,26 @@ rrm_get_own_quick() {
 }
 
 # rrm_nr_map_ifaces
-#   Outputs lines: <iface> <ssid>
+#   Outputs lines: <iface> <bssid> <ssid>
 rrm_nr_map_ifaces() {
 	for obj in $(ubus list hostapd.* 2>/dev/null); do
 		ifc=${obj#hostapd.}
-		ssid=""
+		ssid=""; bssid=""
 		# Try several ubus methods (put rrm_nr_get_own first since others may be absent)
 		for method in rrm_nr_get_own get_config bss; do
-			[ -n "$ssid" ] && break
+			[ -n "$ssid" ] && [ -n "$bssid" ] && break
 			json=$(ubus call "$obj" "$method" 2>/dev/null || true) || json=""
 			[ -z "$json" ] && continue
 			# Direct simple forms
+			# BSSID first (may appear in several structures)
+			[ -z "$bssid" ] && bssid=$(echo "$json" | jsonfilter -e '@.bssid' 2>/dev/null)
+			[ -z "$bssid" ] && bssid=$(echo "$json" | jsonfilter -e '@.bss[0].bssid' 2>/dev/null)
 			ssid=$(echo "$json" | jsonfilter -e '@.ssid' 2>/dev/null)
 			[ -z "$ssid" ] && ssid=$(echo "$json" | jsonfilter -e '@.bss[0].ssid' 2>/dev/null)
 			# rrm_nr_get_own exposes value array: [ bssid, ssid, ... ]
 			if [ -z "$ssid" ] && [ "$method" = "rrm_nr_get_own" ]; then
 				ssid=$(echo "$json" | jsonfilter -e '@.value[1]' 2>/dev/null)
+				[ -z "$bssid" ] && bssid=$(echo "$json" | jsonfilter -e '@.value[0]' 2>/dev/null)
 			fi
 			# Numeric array form
 			if [ -z "$ssid" ] && echo "$json" | grep -q '"ssid" *:' && echo "$json" | grep -q '\['; then
@@ -125,7 +129,8 @@ rrm_nr_map_ifaces() {
 			ssid=$(iwinfo "$ifc" info 2>/dev/null | sed -n 's/^ESSID: "\(.*\)"$/\1/p')
 		fi
 		[ -z "$ssid" ] && ssid="(unknown)"
-		printf '%s %s\n' "$ifc" "$ssid"
+		[ -z "$bssid" ] && bssid="(unknown)"
+		printf '%s %s %s\n' "$ifc" "$bssid" "$ssid"
 	done
 }
 

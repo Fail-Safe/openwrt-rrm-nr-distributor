@@ -8,7 +8,7 @@ NAME=rrm_nr
 USE_PROCD=1
 RRM_NR_INIT_VERSION="2.0.0-beta"
 EXTRA_COMMANDS="mapping neighbors cache refresh diag metrics timing_check timing-check version status skiplist"
-EXTRA_HELP="  mapping        Show iface->SSID mapping\n  neighbors      Dump current neighbor lists\n  cache          Show cache directory summary\n  refresh        Force immediate refresh (SIGUSR1)\n  diag           Probe readiness timings (per iface)\n  metrics        Show metrics counters (if present)\n  timing_check   Alias of diag (timing-check also accepted)\n  version        Show init script version + git hash (if available)\n  status         Show runtime state + metrics summary\n  skiplist       Show configured skip_iface entries (effective)\n"
+EXTRA_HELP="  mapping        Show iface->BSSID->SSID mapping\n  neighbors      Dump current neighbor lists\n  cache          Show cache directory summary\n  refresh        Force immediate refresh (SIGUSR1)\n  diag           Probe readiness timings (per iface)\n  metrics        Show metrics counters (if present)\n  timing_check   Alias of diag (timing-check also accepted)\n  version        Show init script version + git hash (if available)\n  status         Show runtime state + metrics summary\n  skiplist       Show configured skip_iface entries (effective)\n"
 
 . /lib/functions.sh
 . /lib/rrm_nr_common.sh 2>/dev/null || true
@@ -205,7 +205,7 @@ Available commands:
 	enabled         Check if service is started on boot
 	running         Check if service is running
 	status          Show runtime state + metrics summary
-	mapping         Show iface->SSID mapping (live)
+	mapping         Show iface->BSSID->SSID mapping (live)
 	neighbors       Dump current neighbor lists (per iface)
 	cache           Show cache directory summary
 	refresh         Force immediate refresh (SIGUSR1)
