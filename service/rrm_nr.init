@@ -172,6 +172,11 @@ boot() {
 	start
 }
 
+# Explicit start wrapper (rc.common sometimes safer with direct start)
+start() { start_service; }
+
+usage() { :; } # suppress default usage banner noise (we provide custom commands)
+
 service_triggers() {
 	procd_add_reload_trigger "network" "wireless"
 }
