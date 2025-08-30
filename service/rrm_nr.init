@@ -303,6 +303,9 @@ neighbors_service() {
 # Show cache directory overview
 cache_service() {
 	dir=/tmp/rrm_nr_state/group_cache
+	# Defensive: if execution reaches here but nothing is printed later, having this line helps field debugging.
+	# (Will be followed by a more specific line below.)
+	: # noop for shellcheck; retained comment only
 	if [ ! -d "$dir" ]; then
 		# Provide contextual pending status if metrics exist
 		if [ -f /tmp/rrm_nr_metrics ]; then
@@ -323,6 +326,12 @@ cache_service() {
 		else
 			echo "cache: pending (no cache directory yet; metrics unavailable)"
 		fi
+		return
+	fi
+	# If no .list files yet, avoid silent return (glob stays literal when unmatched)
+	set -- "$dir"/*.list
+	if [ "$1" = "$dir/*.list" ]; then
+		echo "cache: empty (directory present; no neighbor list files yet)"
 		return
 	fi
 	for f in "$dir"/*.list; do [ -f "$f" ] || continue; h=$(basename "$f"); sz=$(wc -c < "$f" 2>/dev/null); mt=$(date -r "$f" +%s 2>/dev/null || stat -c %Y "$f" 2>/dev/null); head=$(head -c 60 "$f" 2>/dev/null); printf '%s size=%s mtime=%s sample=%s\n' "$h" "$sz" "$mt" "$head"; done
