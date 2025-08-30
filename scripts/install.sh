@@ -71,10 +71,42 @@ REPO_ROOT=$(dirname "$SCRIPT_DIR")
 
 dest() { printf '%s%s' "$PREFIX" "$1"; }
 
+# copy_file <src-relative> <dest-path> <mode>
+# Idempotent + atomic:
+#  1. Copy to temp file inside target dir
+#  2. If existing file is byte-identical (cmp/md5sum), discard temp (preserves mtime / flash wear)
+#  3. Else atomic rename (mv) to final path
 copy_file() {
-  src=$1 dst=$2 mode=$3
-  install -d "$(dirname "$(dest "$dst")")"
-  install -m "$mode" "$REPO_ROOT/$src" "$(dest "$dst")"
+  src=$1; dst=$2; mode=$3
+  target="$(dest "$dst")"
+  dir=$(dirname "$target")
+  mkdir -p "$dir"
+  # Create temp in same directory for atomic rename semantics
+  if command -v mktemp >/dev/null 2>&1; then
+    tmp=$(mktemp "$dir/.rrmnr.XXXXXX" 2>/dev/null || mktemp 2>/dev/null) || tmp="$dir/.rrmnr.$$.$(date +%s 2>/dev/null).tmp"
+  else
+    ts=$(date +%s 2>/dev/null || echo $$)
+    tmp="$dir/.rrmnr.$$.$ts.tmp"
+  fi
+  # Copy content
+  cp "$REPO_ROOT/$src" "$tmp" 2>/dev/null || { echo "[rrm_nr] ERROR: copy failed for $src" >&2; rm -f "$tmp"; return 1; }
+  chmod "$mode" "$tmp" 2>/dev/null || true
+  if [ -f "$target" ]; then
+    identical=0
+    if command -v cmp >/dev/null 2>&1; then
+      cmp -s "$target" "$tmp" && identical=1 || true
+    elif command -v md5sum >/dev/null 2>&1; then
+      old_md5=$(md5sum "$target" | awk '{print $1}')
+      new_md5=$(md5sum "$tmp" | awk '{print $1}')
+      [ "$old_md5" = "$new_md5" ] && identical=1 || true
+    fi
+    if [ "$identical" -eq 1 ]; then
+      rm -f "$tmp"
+      return 0
+    fi
+  fi
+  mv -f "$tmp" "$target" 2>/dev/null || { cp "$tmp" "$target" 2>/dev/null; rm -f "$tmp"; }
+  chmod "$mode" "$target" 2>/dev/null || true
 }
 
 echo "[rrm_nr] Installing files (prefix='${PREFIX:-/}')"
@@ -212,7 +244,6 @@ auto_fix_wireless() {
   fi
   [ ! -f "$wcfg" ] && return 0
   tmp=$(mktemp 2>/dev/null || mktemp -t rrmnrfix)
-  changed=0
   awk '
     function flush(){
       if(inf && disabled==0){
