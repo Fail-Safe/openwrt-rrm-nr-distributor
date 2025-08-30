@@ -300,7 +300,28 @@ neighbors_service() {
 # Show cache directory overview
 cache_service() {
 	dir=/tmp/rrm_nr_state/group_cache
-	[ ! -d "$dir" ] && { echo "cache: directory not present"; return; }
+	if [ ! -d "$dir" ]; then
+		# Provide contextual pending status if metrics exist
+		if [ -f /tmp/rrm_nr_metrics ]; then
+			cycle=""; nr_sets_sent=""; remote_entries_merged=""; last_update_time=""
+			while IFS='=' read -r k v; do
+				case "$k" in
+					cycle) cycle=$v ;;
+					nr_sets_sent) nr_sets_sent=$v ;;
+					remote_entries_merged) remote_entries_merged=$v ;;
+					last_update_time) last_update_time=$v ;;
+				esac
+			done < /tmp/rrm_nr_metrics
+			[ -z "$cycle" ] && cycle="?"
+			[ -z "$nr_sets_sent" ] && nr_sets_sent=0
+			[ -z "$remote_entries_merged" ] && remote_entries_merged=0
+			[ -z "$last_update_time" ] && last_update_time=0
+			echo "cache: pending (no cache directory yet; cycles=$cycle nr_sets_sent=$nr_sets_sent remote_entries_merged=$remote_entries_merged last_update_time=$last_update_time)"
+		else
+			echo "cache: pending (no cache directory yet; metrics unavailable)"
+		fi
+		return
+	fi
 	for f in "$dir"/*.list; do [ -f "$f" ] || continue; h=$(basename "$f"); sz=$(wc -c < "$f" 2>/dev/null); mt=$(date -r "$f" +%s 2>/dev/null || stat -c %Y "$f" 2>/dev/null); head=$(head -c 60 "$f" 2>/dev/null); printf '%s size=%s mtime=%s sample=%s\n' "$h" "$sz" "$mt" "$head"; done
 }
 
