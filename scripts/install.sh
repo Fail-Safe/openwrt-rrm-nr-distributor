@@ -281,7 +281,7 @@ fi
 
 # Provide default UCI config if absent or forced.
 if [ ! -f "$(dest /etc/config/rrm_nr)" ] || [ "$FORCE_CONFIG" -eq 1 ]; then
-  install -d "$(dest /etc/config)"
+  mkdir -p "$(dest /etc/config)"
   cat >"$(dest /etc/config/rrm_nr)" <<'EOC'
 config rrm_nr 'global'
   option enabled '1'
