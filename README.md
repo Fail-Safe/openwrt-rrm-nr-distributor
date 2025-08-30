@@ -203,6 +203,14 @@ You may (optionally) include a `hostapd.` prefix; it will be stripped automatica
 
 Skipped interfaces are omitted from TXT assembly and neighbor list updates.
 
+On startup and reload, if any interfaces are skipped you'll see an additional log line:
+
+```
+Skip list: wlan0 wlan1-1
+```
+
+Note: The runtime status file still reports the environment variable as `skip_ifaces=` internally; this is only a naming artifact and maps to the configured `list skip_iface` entries.
+
 ### Reloading Configuration
 
 `/etc/init.d/rrm_nr reload` triggers a SIGHUP which now:

@@ -145,6 +145,9 @@ start_service() {
 		logger -t "${NAME}" -p daemon.info "Assembled $ssid_count SSID entries (config-skipped $cfg_skipped, not-ready $not_ready_count)"
 	fi
 
+	# Log effective skip list (only if non-empty) for operator clarity
+	[ -n "$skip_ifaces" ] && logger -t "${NAME}" -p daemon.info "Skip list: $skip_ifaces"
+
 		rrm_own="${rrm_own#*+}"
 		IFS='+'
 		# shellcheck disable=SC2086
@@ -208,6 +211,7 @@ reload_service() {
 	else
 		logger -t "${NAME}" -p daemon.info "Reload assembled $ready_count SSID entries (config-skipped $cfg_skipped_count, not-ready $not_ready_count)"
 	fi
+	[ -n "$CFG_SKIP_IFACES" ] && logger -t "${NAME}" -p daemon.info "Skip list: $CFG_SKIP_IFACES"
 }
 
 status_service() {
