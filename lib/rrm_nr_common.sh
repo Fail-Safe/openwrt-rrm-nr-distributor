@@ -92,7 +92,11 @@ rrm_nr_map_ifaces() {
 	for obj in $(ubus list hostapd.* 2>/dev/null); do
 		ifc=${obj#hostapd.}
 		ssid=$(iwinfo "$ifc" info 2>/dev/null | sed -n 's/^ESSID: "\(.*\)"$/\1/p')
-		[ -z "$ssid" ] && ssid=$(ubus call "$obj" bss 2>/dev/null | jsonfilter -e '@.ssid')
+		if [ -z "$ssid" ]; then
+			# Suppress jsonfilter stderr noise on transient empty / malformed JSON
+			ssid=$(ubus call "$obj" bss 2>/dev/null | jsonfilter -e '@.ssid' 2>/dev/null)
+		fi
+		[ -z "$ssid" ] && ssid="(unknown)"
 		printf '%s %s\n' "$ifc" "$ssid"
 	done
 }
