@@ -167,20 +167,6 @@ start_service() {
 		procd_add_mdns "rrm_nr" "udp" "5247" "$@"
 		procd_close_instance
 	}
-	wait_start=$(date +%s 2>/dev/null)
-	[ -z "$wait_start" ] && wait_start=0
-	timeout_sec=$((5 * 60)) # 5 minute safety timeout
-	while :; do
-		current=$(ubus list hostapd.* | wc -l)
-		expected=$(get_enabled_iface_count)
-		[ "$current" = "$expected" ] && break
-		now=$(date +%s 2>/dev/null); [ -z "$now" ] && now=$wait_start
-		if [ $((now - wait_start)) -ge "$timeout_sec" ]; then
-			logger -t "${NAME}" -p daemon.error "Timeout waiting for hostapd objects (got $current / expected $expected). Check wireless config & hostapd logs." && exit 1
-		fi
-		sleep 3
-	done
-	logger -t "${NAME}" -p daemon.info "All wireless interfaces are initialized."
 
 boot() {
 	start
