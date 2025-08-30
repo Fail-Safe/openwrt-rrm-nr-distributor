@@ -10,11 +10,6 @@ RRM_NR_INIT_VERSION="2.0.0-beta"
 EXTRA_COMMANDS="mapping neighbors cache refresh diag metrics timing_check timing-check version status"
 EXTRA_HELP="  mapping        Show iface->SSID mapping\n  neighbors      Dump current neighbor lists\n  cache          Show cache directory summary\n  refresh        Force immediate refresh (SIGUSR1)\n  diag           Probe readiness timings (per iface)\n  metrics        Show metrics counters (if present)\n  timing_check   Alias of diag (timing-check also accepted)\n  version        Show init script version + git hash (if available)\n  status         Show runtime state + metrics summary\n"
 
-# NOTE: Do NOT early-exit on zero arguments; rc.common/procd may invoke the
-# script internally without an action while setting up. An early exit here
-# suppressed the start logic & logging. Usage banner suppression is handled
-# by overriding usage()/help()/print_usage() further below.
-
 . /lib/functions.sh
 . /lib/rrm_nr_common.sh 2>/dev/null || true
 
@@ -43,10 +38,8 @@ load_rrm_nr_config() {
 	config_get skip_ifaces global skip_ifaces ""
 	[ -n "$skip_ifaces" ] && CFG_SKIP_IFACES="${CFG_SKIP_IFACES} ${skip_ifaces}"
 	config_list_foreach global skip_iface append_skip_iface
-	# de-dup & normalize whitespace (shared helper)
 	CFG_SKIP_IFACES=$(normalize_iflist "$CFG_SKIP_IFACES")
 }
-
 
 get_wifi_iface_count() { grep -c 'wifi-iface' /etc/config/wireless; }
 
@@ -60,7 +53,6 @@ get_enabled_iface_count() {
 		count=$((count + 1))
 	done
 	echo "$count"
-
 }
 
 start_service() {
@@ -103,69 +95,44 @@ start_service() {
 	RRM_NR_UMDNS_SETTLE_DELAY=$CFG_UMDNS_SETTLE_DELAY
 	skip_ifaces=$CFG_SKIP_IFACES
 
-		rrm_own=""
-		ssid_count=0
-		unready_list=""
-		# Derive effective tunables
-		QUICK_MAX_MS=${RRM_NR_QUICK_MAX_MS:-2000}
-		case "$QUICK_MAX_MS" in ''|*[!0-9]* ) QUICK_MAX_MS=2000;; esac
-		[ "$QUICK_MAX_MS" -gt 5000 ] && QUICK_MAX_MS=5000
-		SECOND_PASS_MS=${RRM_NR_SECOND_PASS_MS:-800}
-		case "$SECOND_PASS_MS" in ''|*[!0-9]* ) SECOND_PASS_MS=800;; esac
-		[ "$SECOND_PASS_MS" -gt 1500 ] && SECOND_PASS_MS=1500
+	rrm_own=""; ssid_count=0; unready_list=""; cfg_skipped=0
+	QUICK_MAX_MS=${RRM_NR_QUICK_MAX_MS:-2000}; case "$QUICK_MAX_MS" in ''|*[!0-9]* ) QUICK_MAX_MS=2000;; esac; [ "$QUICK_MAX_MS" -gt 5000 ] && QUICK_MAX_MS=5000
+	SECOND_PASS_MS=${RRM_NR_SECOND_PASS_MS:-800}; case "$SECOND_PASS_MS" in ''|*[!0-9]* ) SECOND_PASS_MS=800;; esac; [ "$SECOND_PASS_MS" -gt 1500 ] && SECOND_PASS_MS=1500
 
-	# First pass (adaptive quick function per iface)
-	for value in $(ubus list hostapd.*); do
-			iface_name=${value#hostapd.}
-			skip=0
-			for s in $skip_ifaces; do [ "$iface_name" = "$s" ] && skip=1 && break; done
-			[ $skip -eq 1 ] && continue
-			curr_json=$(rrm_get_own_quick "$iface_name") || {
-				[ "$CFG_DEBUG" = "1" ] && logger -t "${NAME}" -p daemon.debug "iface $iface_name not yet ready (deferred)"
-				unready_list="${unready_list} ${iface_name}"
-				continue
-			}
-			curr_value=$(echo "$curr_json" | jsonfilter -e '$.value')
-			ssid_count=$((ssid_count + 1))
-			rrm_own="${rrm_own}+SSID${ssid_count}=${curr_value}"
-		done
+	# First pass
+	for obj in $(ubus list hostapd.*); do
+		iface=${obj#hostapd.}
+		sk=0; for s in $skip_ifaces; do [ "$iface" = "$s" ] && sk=1 && break; done
+		if [ $sk -eq 1 ]; then cfg_skipped=$((cfg_skipped+1)); continue; fi
+		json=$(rrm_get_own_quick "$iface") || { [ "$CFG_DEBUG" = "1" ] && logger -t "${NAME}" -p daemon.debug "iface $iface not yet ready (deferred)"; unready_list="$unready_list $iface"; continue; }
+		val=$(echo "$json" | jsonfilter -e '$.value')
+		ssid_count=$((ssid_count+1)); rrm_own="${rrm_own}+SSID${ssid_count}=${val}"
+	 done
 
 	[ -n "$unready_list" ] && rrm_nr_sleep_ms "$SECOND_PASS_MS"
-		final_unready=""
+	final_unready=""
 	if [ -n "$unready_list" ]; then
-			_saved_IFS=$IFS; IFS=" 	"
-			# shellcheck disable=SC2086
-			for iface_name in $unready_list; do
-				[ -z "$iface_name" ] && continue
-				curr_json=$(ubus call "hostapd.$iface_name" rrm_nr_get_own 2>/dev/null) || { final_unready="${final_unready} ${iface_name}"; continue; }
-				curr_value=$(echo "$curr_json" | jsonfilter -e '$.value')
-				[ -n "$curr_value" ] || { final_unready="${final_unready} ${iface_name}"; continue; }
-				ssid_count=$((ssid_count + 1))
-				rrm_own="${rrm_own}+SSID${ssid_count}=${curr_value}"
-				[ "$CFG_DEBUG" = "1" ] && logger -t "${NAME}" -p daemon.debug "iface $iface_name became ready in second pass"
-			done
-			IFS=$_saved_IFS
-		fi
-
-	if [ -n "$final_unready" ]; then
-			_saved_IFS=$IFS; IFS=" 	"; set -- $final_unready; count=$#; IFS=$_saved_IFS; final_unready_display=${final_unready# }
-			plural="s"; [ "$count" -eq 1 ] && plural=""
-			prio=daemon.info; [ "$ssid_count" -eq 0 ] && prio=daemon.warning
-			logger -t "${NAME}" -p $prio "Skipped $count interface${plural} not ready after second pass: $final_unready_display"
-		fi
-
-	# Summary log: how many SSIDs assembled + whether any were skipped (single concise line)
-	if [ -n "$final_unready" ]; then
-		_saved_IFS=$IFS
-		# Set IFS to space and tab for word splitting
-		IFS=" 	"
-		# shellcheck disable=SC2086
-		set -- $final_unready
-		skipped=$#
+		_saved_IFS=$IFS; IFS=' '
+		for iface in $unready_list; do
+			[ -z "$iface" ] && continue
+			json=$(ubus call "hostapd.$iface" rrm_nr_get_own 2>/dev/null) || { final_unready="$final_unready $iface"; continue; }
+			val=$(echo "$json" | jsonfilter -e '$.value')
+			[ -n "$val" ] || { final_unready="$final_unready $iface"; continue; }
+			ssid_count=$((ssid_count+1)); rrm_own="${rrm_own}+SSID${ssid_count}=${val}"
+			[ "$CFG_DEBUG" = "1" ] && logger -t "${NAME}" -p daemon.debug "iface $iface became ready in second pass"
+		done
 		IFS=$_saved_IFS
-		logger -t "${NAME}" -p daemon.info "Assembled $ssid_count SSID entries (skipped $skipped)"
+	fi
+
+	if [ -n "$final_unready" ]; then
+		_saved_IFS=$IFS; IFS=' '; set -- $final_unready; not_ready_count=$#; IFS=$_saved_IFS
 	else
+		not_ready_count=0
+	fi
+	if [ $cfg_skipped -eq 0 ] && [ $not_ready_count -eq 0 ]; then
 		logger -t "${NAME}" -p daemon.info "Assembled $ssid_count SSID entries (no skips)"
+	else
+		logger -t "${NAME}" -p daemon.info "Assembled $ssid_count SSID entries (config-skipped $cfg_skipped, not-ready $not_ready_count)"
 	fi
 
 		rrm_own="${rrm_own#*+}"
@@ -191,9 +158,7 @@ start_service() {
 	return 0
 }
 
-boot() {
-	start
-}
+boot() { start; }
 
 # Explicit start wrapper (rc.common sometimes safer with direct start)
 start() { start_service; }
@@ -217,7 +182,22 @@ service_triggers() {
 # Expose a user-invoked reload that sends SIGHUP to the running daemon so it
 # can rebuild interface mapping and skip list without full restart.
 reload_service() {
-	procd_send_signal rrm_nr 1
+	# Send SIGHUP to daemon to trigger its internal re-load
+	procd_send_signal rrm_nr 1 2>/dev/null || { logger -t "${NAME}" -p daemon.warning "Reload requested but daemon not running"; return 1; }
+	load_rrm_nr_config
+	class_line=$(rrm_nr_classify_ifaces "$CFG_SKIP_IFACES")
+	ready_count=0 cfg_skipped="" not_ready=""
+	# shellcheck disable=SC2086
+	eval "$class_line"
+	# cfg_skipped / not_ready / ready_count now set
+	# Count words in not_ready (empty -> 0)
+	if [ -n "$not_ready" ]; then set -- $not_ready; not_ready_count=$#; else not_ready_count=0; fi
+	if [ -n "$cfg_skipped" ]; then set -- $cfg_skipped; cfg_skipped_count=$#; else cfg_skipped_count=0; fi
+	if [ $cfg_skipped_count -eq 0 ] && [ $not_ready_count -eq 0 ]; then
+		logger -t "${NAME}" -p daemon.info "Reload assembled $ready_count SSID entries (no skips)"
+	else
+		logger -t "${NAME}" -p daemon.info "Reload assembled $ready_count SSID entries (config-skipped $cfg_skipped_count, not-ready $not_ready_count)"
+	fi
 }
 
 status_service() {

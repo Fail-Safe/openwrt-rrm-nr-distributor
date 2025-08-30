@@ -121,3 +121,29 @@ rrm_nr_probe_iface() {
 	[ -n "$start" ] && [ -n "$end" ] && ms=$((end-start)) || ms=-1
 	printf 'iface=%s rc=%s attempts=%s ms=%s max_ms=%s\n' "$ifc" "$rc" "$attempts" "$ms" "$max_ms"
 }
+
+# rrm_nr_classify_ifaces <skip_list>
+#   Iterates hostapd objects; outputs three space-separated lists via stdout in form:
+#     cfg_skipped="..." not_ready="..." ready_count=N
+#   (Lists may be empty strings). Intended for summary logging.
+rrm_nr_classify_ifaces() {
+	skip_list="$1"
+	cfg_skipped=""; not_ready=""; ready_count=0
+	for obj in $(ubus list hostapd.* 2>/dev/null); do
+		iface=${obj#hostapd.}
+		# config skip
+		sk=0; for s in $skip_list; do [ "$iface" = "$s" ] && sk=1 && break; done
+		if [ $sk -eq 1 ]; then
+			cfg_skipped="$cfg_skipped $iface"
+			continue
+		fi
+		json=$(ubus call "$obj" rrm_nr_get_own 2>/dev/null || true)
+		[ -n "$json" ] && val=$(echo "$json" | jsonfilter -e '$.value') || val=""
+		if [ -n "$val" ]; then
+			ready_count=$((ready_count+1))
+		else
+			not_ready="$not_ready $iface"
+		fi
+	done
+	echo "cfg_skipped='${cfg_skipped# }' not_ready='${not_ready# }' ready_count=$ready_count"
+}

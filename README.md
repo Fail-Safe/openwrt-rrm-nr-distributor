@@ -259,7 +259,8 @@ Pass `--fix` later if auto-fix logic is introduced (currently just reports).
 - Minimal dependencies: BusyBox POSIX shell only (avoid `[[` and arrays). `jsonfilter` is assumed present on OpenWrt.
 - Assumes hostapd exposes `rrm_nr_get_own`; if upstream API changes, implement a fallback probe sequence.
 - Adaptive quick retry: uses 200ms increments when high-resolution sleep available, else degrades gracefully to a single 1s wait (bounded). No hard multi-second delay is baked in; timing analysis shows typical readiness ≤0.2s on tested hardware.
-	- After initial assembly you will see a concise line: `Assembled <n> SSID entries (skipped <k>)` or `(no skips)` summarizing startup coverage.
+	- After initial assembly you will see a concise line: `Assembled <n> SSID entries (config-skipped X, not-ready Y)` (or `(no skips)` when both zero) summarizing startup coverage.
+	- On reload (SIGHUP) a summary differentiates `config-skipped` (explicitly excluded via UCI) vs `not-ready` (hostapd object returned no value): `Reload assembled <n> SSID entries (config-skipped X, not-ready Y)`.
 
 ### Persistence Across Upgrades (sysupgrade)
 
