@@ -91,10 +91,20 @@ rrm_get_own_quick() {
 rrm_nr_map_ifaces() {
 	for obj in $(ubus list hostapd.* 2>/dev/null); do
 		ifc=${obj#hostapd.}
-		ssid=$(iwinfo "$ifc" info 2>/dev/null | sed -n 's/^ESSID: "\(.*\)"$/\1/p')
+		ssid=""
+		# Primary: bss JSON (contains ssid reliably even when iwinfo name differs)
+		bss_json=$(ubus call "$obj" bss 2>/dev/null || true)
+		if [ -n "$bss_json" ]; then
+			ssid=$(echo "$bss_json" | jsonfilter -e '@.ssid' 2>/dev/null)
+		fi
+		# Fallback: rrm_nr_get_own may include ssid in some builds
 		if [ -z "$ssid" ]; then
-			# Suppress jsonfilter stderr noise on transient empty / malformed JSON
-			ssid=$(ubus call "$obj" bss 2>/dev/null | jsonfilter -e '@.ssid' 2>/dev/null)
+			own_json=$(ubus call "$obj" rrm_nr_get_own 2>/dev/null || true)
+			[ -n "$own_json" ] && ssid=$(echo "$own_json" | jsonfilter -e '@.ssid' 2>/dev/null)
+		fi
+		# Final fallback: attempt iwinfo only if interface is directly present (some builds expose it)
+		if [ -z "$ssid" ] && ip link show "$ifc" >/dev/null 2>&1; then
+			ssid=$(iwinfo "$ifc" info 2>/dev/null | sed -n 's/^ESSID: "\(.*\)"$/\1/p')
 		fi
 		[ -z "$ssid" ] && ssid="(unknown)"
 		printf '%s %s\n' "$ifc" "$ssid"
