@@ -273,7 +273,13 @@ do_updates(){
 		[ -z "$unique" ] && { debug "ssid='$ssid': unique list empty"; continue; }
 		debug "ssid='$ssid': candidates_count=$(printf '%s\n' "$unique" | wc -l 2>/dev/null)"
 		# Prepare JSON array
-		compact=$(printf '%s\n' "$unique" | paste -sd, -); list="[$compact]"
+		compact=$(printf '%s\n' "$unique" | paste -sd, -)
+		if [ -n "$compact" ]; then
+			list="[$compact]"
+		else
+			list="[]"
+		fi
+		debug "group_build: ssid='$ssid' compact_len=${#compact} list='$(printf '%.120s' "$list")'"
 		# Group cache key
 		ssid_hash=$(printf '%s' "$ssid" | md5sum 2>/dev/null | awk '{print $1}')
 		[ -z "$ssid_hash" ] && ssid_hash=$(printf '%s' "$ssid" | wc -c)
@@ -284,7 +290,13 @@ do_updates(){
 		new_norm=$(printf '%s' "$list" | tr -d ' ')
 		old_norm=$(printf '%s' "$prev_list" | tr -d ' ')
 		changed=0
-		if [ "$force_update_test" = 1 ] || [ "$new_norm" != "$old_norm" ]; then
+		# If previous list was empty array and we now have candidates (unique non-empty, list not '[]') force update
+		if [ "$old_norm" = "[]" ] && [ -n "$compact" ]; then
+			force_write=1
+		else
+			force_write=0
+		fi
+		if [ "$force_update_test" = 1 ] || [ "$new_norm" != "$old_norm" ] || [ "$force_write" = 1 ]; then
 			changed=1; cache_misses=$((cache_misses+1))
 			echo "$list" > "$cache_file" 2>/dev/null
 			debug "cache_write: ssid='$ssid' file=$(basename "$cache_file") size=${#list}"
