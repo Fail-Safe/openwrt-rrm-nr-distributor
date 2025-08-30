@@ -205,7 +205,7 @@ Available commands:
 	enabled         Check if service is started on boot
 	running         Check if service is running
 	status          Show runtime state + metrics summary
-	mapping         Show iface->BSSID->SSID mapping (live)
+	mapping         Show iface/BSSID/channel/freq/SSID mapping (live)
 	neighbors       Dump current neighbor lists (per iface)
 	cache           Show cache directory summary
 	refresh         Force immediate refresh (SIGUSR1)
@@ -281,7 +281,11 @@ status_service() {
 }
 
 # Print iface->SSID mapping (live)
-mapping_service() { rrm_nr_map_ifaces | sed 's/^/  /'; }
+mapping_service() {
+	# Header (aligned with rrm_nr_map_ifaces formatting)
+	printf '  %-12s %-17s %-4s %-6s %s\n' iface bssid chan freq SSID
+	rrm_nr_map_ifaces | sed 's/^/  /'
+}
 
 # Dump current neighbor list per interface
 neighbors_service() {

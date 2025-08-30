@@ -86,51 +86,71 @@ rrm_get_own_quick() {
 	return 1
 }
 
-# rrm_nr_map_ifaces
-#   Outputs lines: <iface> <bssid> <ssid>
+## rrm_nr_map_ifaces
+# Outputs aligned columns: iface bssid chan freq_mhz ssid
 rrm_nr_map_ifaces() {
 	for obj in $(ubus list hostapd.* 2>/dev/null); do
 		ifc=${obj#hostapd.}
-		ssid=""; bssid=""
-		# Try several ubus methods (put rrm_nr_get_own first since others may be absent)
+		ssid=""; bssid=""; chan=""; freq_mhz=""
 		for method in rrm_nr_get_own get_config bss; do
-			[ -n "$ssid" ] && [ -n "$bssid" ] && break
+			[ -n "$ssid" ] && [ -n "$bssid" ] && [ -n "$chan" ] && [ -n "$freq_mhz" ] && break
 			json=$(ubus call "$obj" "$method" 2>/dev/null || true) || json=""
 			[ -z "$json" ] && continue
-			# Direct simple forms
-			# BSSID first (may appear in several structures)
+			# BSSID / SSID
 			[ -z "$bssid" ] && bssid=$(echo "$json" | jsonfilter -e '@.bssid' 2>/dev/null)
 			[ -z "$bssid" ] && bssid=$(echo "$json" | jsonfilter -e '@.bss[0].bssid' 2>/dev/null)
 			ssid=$(echo "$json" | jsonfilter -e '@.ssid' 2>/dev/null)
 			[ -z "$ssid" ] && ssid=$(echo "$json" | jsonfilter -e '@.bss[0].ssid' 2>/dev/null)
-			# rrm_nr_get_own exposes value array: [ bssid, ssid, ... ]
 			if [ -z "$ssid" ] && [ "$method" = "rrm_nr_get_own" ]; then
 				ssid=$(echo "$json" | jsonfilter -e '@.value[1]' 2>/dev/null)
 				[ -z "$bssid" ] && bssid=$(echo "$json" | jsonfilter -e '@.value[0]' 2>/dev/null)
 			fi
-			# Numeric array form
+			# Channel / Frequency
+			[ -z "$chan" ] && chan=$(echo "$json" | jsonfilter -e '@.channel' 2>/dev/null)
+			[ -z "$chan" ] && chan=$(echo "$json" | jsonfilter -e '@.bss[0].channel' 2>/dev/null)
+			[ -z "$freq_mhz" ] && freq_mhz=$(echo "$json" | jsonfilter -e '@.freq' 2>/dev/null)
+			[ -z "$freq_mhz" ] && freq_mhz=$(echo "$json" | jsonfilter -e '@.frequency' 2>/dev/null)
+			# Numeric SSID array form
 			if [ -z "$ssid" ] && echo "$json" | grep -q '"ssid" *:' && echo "$json" | grep -q '\['; then
 				arr=$(echo "$json" | sed -n 's/.*"ssid" *: *\[\([^]]*\)\].*/\1/p' | tr -d '"')
 				if echo "$arr" | grep -qE '^[0-9][0-9, ]*$'; then
 					ssid=$(echo "$arr" | tr ',' ' ' | awk '{for(i=1;i<=NF;i++){ if($i!="") printf "%c", $i }}')
 				fi
 			fi
-			# Hex string fallback (some builds may export hex without quotes inside array we already tried)
+			# Hex SSID fallback
 			if [ -z "$ssid" ]; then
 				hex=$(echo "$json" | sed -n 's/.*"ssid" *: *"\([0-9A-Fa-f]\{2,\}\)".*/\1/p')
 				if [ -n "$hex" ] && echo "$hex" | grep -qE '^[0-9A-Fa-f]+$'; then
-					# Decode hex pairs to ASCII (printables only)
 					ssid=$(echo "$hex" | sed 's/../& /g' | awk '{for(i=1;i<=NF;i++){ c=strtonum("0x"$i); if(c>=32 && c<=126) printf "%c", c; else printf "?" }}')
 				fi
 			fi
 		done
-		# Last resort: iwinfo if an actual netdev matches iface name
-		if [ -z "$ssid" ] && ip link show "$ifc" >/dev/null 2>&1; then
-			ssid=$(iwinfo "$ifc" info 2>/dev/null | sed -n 's/^ESSID: "\(.*\)"$/\1/p')
+		# iwinfo fallback for SSID / channel / freq
+		if ip link show "$ifc" >/dev/null 2>&1; then
+			if [ -z "$ssid" ]; then
+				ssid=$(iwinfo "$ifc" info 2>/dev/null | sed -n 's/^ESSID: "\(.*\)"$/\1/p')
+			fi
+			if [ -z "$chan" ] || [ -z "$freq_mhz" ]; then
+				ch_line=$(iwinfo "$ifc" info 2>/dev/null | grep '^Channel:' || true)
+				if [ -n "$ch_line" ]; then
+					[ -z "$chan" ] && chan=$(echo "$ch_line" | sed -n 's/^Channel: *\([0-9][0-9]*\).*/\1/p')
+					paren=$(echo "$ch_line" | sed -n 's/^Channel: *[0-9][0-9]* (\([^)]*\)).*/\1/p')
+					if [ -n "$paren" ]; then
+						num=$(echo "$paren" | awk '{print $1}')
+						unit=$(echo "$paren" | awk '{print $2}')
+						case "$unit" in
+							G*|g*) freq_mhz=$(awk -v n="$num" 'BEGIN{printf "%d", (n*1000)+0.5}') ;;
+							M*|m*) freq_mhz=${num%.*} ;;
+						esac
+					fi
+				fi
+			fi
 		fi
 		[ -z "$ssid" ] && ssid="(unknown)"
 		[ -z "$bssid" ] && bssid="(unknown)"
-		printf '%s %s %s\n' "$ifc" "$bssid" "$ssid"
+		[ -z "$chan" ] && chan="-"
+		[ -z "$freq_mhz" ] && freq_mhz="-"
+		printf '%-12s %-17s %-4s %-6s %s\n' "$ifc" "$bssid" "$chan" "$freq_mhz" "$ssid"
 	done
 }
 
